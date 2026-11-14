@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Panel de la tienda</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111827'/%3E%3Cpath d='M20 22h24v4H20zm0 8h24v4H20zm0 8h16v4H20z' fill='%23fff'/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+
+    <script>
+        (function () {
+            var t = null;
+            try { t = localStorage.getItem('admin-theme'); } catch (e) {}
+            var oscuro = t ? t === 'dark' : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            if (oscuro) document.documentElement.setAttribute('data-theme', 'dark');
+        })();
+    </script>
+
+    <script src="config.js"></script>
+    <script src="tienda-core.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js" defer></script>
+    <!-- Login: admin-auth.js define TiendaAuth.asegurarAcceso(), que admin.js
+         espera antes de leer o escribir la base. defer respeta este orden. -->
+    <script src="admin-auth.js" defer></script>
+    <script src="admin.js" defer></script>
+
+    <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="topbar-marca">
+        <div class="topbar-logo" id="topLogo">T</div>
+        <div class="topbar-titulo">
+            <strong id="topNombre">Mi Tienda</strong>
+            <span>Panel de la tienda · <span class="chip-tienda" id="topTiendaId">demo</span></span>
+        </div>
+    </div>
+    <div class="topbar-espacio"></div>
+    <span class="estado" id="estado"><span class="estado-punto"></span><span class="estado-texto" id="estadoTexto">Cargando…</span></span>
+    <button type="button" class="btn btn-icono btn-texto" id="btnTemaPanel" title="Modo claro / oscuro" aria-label="Cambiar modo del panel"><i class="fas fa-moon"></i></button>
+    <button type="button" class="btn solo-chico" id="btnAbrirPreview"><i class="fas fa-eye"></i><span class="ocultar-movil">Vista previa</span></button>
+    <a class="btn ocultar-movil" id="btnVerCatalogo" href="./" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i>Ver catálogo</a>
+    <button type="button" class="btn" id="btnDescartar" disabled><i class="fas fa-rotate-left"></i><span class="ocultar-movil">Descartar</span></button>
+    <button type="button" class="btn btn-primario" id="btnGuardar" disabled><i class="fas fa-cloud-arrow-up"></i>Guardar</button>
+</header>
+
+<div id="bandaConfig" class="banda" hidden>
+    <i class="fas fa-triangle-exclamation"></i>
+    <div id="bandaConfigTexto"></div>
+</div>
+
+<div class="layout">
+    <!-- ===== Navegación ===== -->
+    <nav class="nav" id="nav" aria-label="Secciones del panel">
+        <div class="nav-grupo">Marca</div>
+        <button type="button" class="nav-item activo" data-seccion="identidad"><i class="fas fa-id-badge"></i>Identidad</button>
+        <button type="button" class="nav-item" data-seccion="apariencia"><i class="fas fa-palette"></i>Apariencia</button>
+        <button type="button" class="nav-item" data-seccion="banners"><i class="fas fa-images"></i>Banners</button>
+        <div class="nav-grupo">Contenido</div>
+        <button type="button" class="nav-item" data-seccion="contacto"><i class="fas fa-headset"></i>Contacto</button>
+        <button type="button" class="nav-item" data-seccion="textos"><i class="fas fa-align-left"></i>Textos</button>
+        <button type="button" class="nav-item" data-seccion="faq"><i class="fas fa-circle-question"></i>Preguntas frecuentes</button>
+        <div class="nav-grupo">Venta</div>
+        <button type="button" class="nav-item" data-seccion="precios"><i class="fas fa-percent"></i>Precios</button>
+        <button type="button" class="nav-item" data-seccion="pedidos"><i class="fab fa-whatsapp"></i>Pedidos</button>
+        <button type="button" class="nav-item" data-seccion="catalogo"><i class="fas fa-table-cells-large"></i>Catálogo</button>
+    </nav>
+
+    <!-- ===== Formularios ===== -->
+    <main class="contenido" id="contenido">
+
+        <!-- IDENTIDAD -->
+        <section class="seccion activa" data-seccion="identidad">
+            <div class="seccion-cabecera">
+                <h1>Identidad</h1>
+                <p>El nombre, el logo y cómo aparece la tienda en la pestaña del navegador.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-signature ic"></i>Nombre</span></h2>
+                <p class="tarjeta-sub">Si no subís un logo, el nombre comercial se usa como logotipo.</p>
+                <div class="campos">
+                    <div class="campo"><label for="f-nombre">Nombre comercial</label><input type="text" id="f-nombre" data-campo="identidad.nombreComercial" maxlength="40"></div>
+                    <div class="campo"><label for="f-eslogan">Bajada debajo del logo</label><input type="text" id="f-eslogan" data-campo="identidad.eslogan" maxlength="40" placeholder="Ej: Distribuidora mayorista"></div>
+                    <div class="campo"><label for="f-titulo">Título de la pestaña</label><input type="text" id="f-titulo" data-campo="identidad.tituloPagina" maxlength="70"><small>Es lo que se ve en la pestaña y al compartir el enlace.</small></div>
+                    <div class="campo"><label for="f-desc">Descripción del pie</label><textarea id="f-desc" data-campo="identidad.descripcionPie" maxlength="220" placeholder="Una o dos líneas sobre la tienda"></textarea></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-image ic"></i>Logo y favicon</span></h2>
+                <p class="tarjeta-sub">PNG, JPG, WEBP o SVG. Se optimizan solas antes de guardarse. Para el logo conviene fondo transparente.</p>
+                <div class="campos una">
+                    <div class="campo" data-imagen="identidad.logoClaro" data-max="900x300" data-etiqueta="Logo para fondo claro" data-ayuda="Se usa en el encabezado, el pie y la pantalla de carga."></div>
+                    <div class="campo" data-imagen="identidad.logoOscuro" data-max="900x300" data-oscuro="1" data-etiqueta="Logo para modo oscuro (opcional)" data-ayuda="Si no lo subís, se usa el logo claro también en modo oscuro."></div>
+                    <div class="campo" data-imagen="identidad.favicon" data-max="128x128" data-cuadrado="1" data-etiqueta="Favicon (opcional)" data-ayuda="Ícono cuadrado de la pestaña. Si falta, se dibuja la inicial de la tienda con su color."></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- APARIENCIA -->
+        <section class="seccion" data-seccion="apariencia">
+            <div class="seccion-cabecera">
+                <h1>Apariencia</h1>
+                <p>Elegí una gama de colores o armá la tuya. Cada gama trae su versión para modo oscuro.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-swatchbook ic"></i>Gama de colores</span></h2>
+                <p class="tarjeta-sub">El color principal se usa en botones, precios y detalles; el de acento, en íconos destacados.</p>
+                <div class="gamas" id="gamas"></div>
+                <div class="colores-propios" id="coloresPropios">
+                    <div class="campo">
+                        <label>Color principal</label>
+                        <div class="selector-color"><input type="color" id="colorPrimarioPicker" aria-label="Elegir color principal"><input type="text" id="colorPrimarioTexto" maxlength="7" aria-label="Color principal (hex)"></div>
+                    </div>
+                    <div class="campo">
+                        <label>Color de acento</label>
+                        <div class="selector-color"><input type="color" id="colorAcentoPicker" aria-label="Elegir color de acento"><input type="text" id="colorAcentoTexto" maxlength="7" aria-label="Color de acento (hex)"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-circle-half-stroke ic"></i>Modo claro y oscuro</span></h2>
+                <div class="campos una">
+                    <div class="campo">
+                        <span class="etiqueta">Modo al entrar</span>
+                        <div class="segmentos">
+                            <label><input type="radio" name="modoInicial" value="sistema" data-campo="apariencia.modoInicial"><span><i class="fas fa-desktop"></i>Según el dispositivo</span></label>
+                            <label><input type="radio" name="modoInicial" value="claro" data-campo="apariencia.modoInicial"><span><i class="fas fa-sun"></i>Claro</span></label>
+                            <label><input type="radio" name="modoInicial" value="oscuro" data-campo="apariencia.modoInicial"><span><i class="fas fa-moon"></i>Oscuro</span></label>
+                        </div>
+                    </div>
+                    <label class="interruptor"><input type="checkbox" data-campo="apariencia.permitirCambioModo"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Permitir que el cliente cambie de modo</strong><small>Muestra el botón de sol/luna en el encabezado.</small></span></label>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-font ic"></i>Tipografía</span></h2>
+                <div class="campos">
+                    <div class="campo"><label for="f-tipo">Familia</label><select id="f-tipo" data-campo="apariencia.tipografia"></select></div>
+                    <div class="campo"><span class="etiqueta">Muestra</span><div class="muestra-tipo" id="muestraTipo"><strong>Catálogo 2026</strong><span>Precios actualizados todos los días · $ 12.345</span></div></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- BANNERS -->
+        <section class="seccion" data-seccion="banners">
+            <div class="seccion-cabecera">
+                <h1>Banners</h1>
+                <p>Imágenes que rotan cada 5 segundos arriba del catálogo y al final de la página. Si una lista queda vacía, ese carrusel no se muestra.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-panorama ic"></i>Carrusel superior</span></h2>
+                <p class="tarjeta-sub">Recomendado: 1600 × 360 px para computadora y 800 × 330 px para celular (opcional).</p>
+                <div class="lista" id="listaBannersSuperior"></div>
+                <div class="lista-pie"><button type="button" class="btn btn-chico" data-agregar-banner="superior"><i class="fas fa-plus"></i>Agregar banner</button></div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-panorama ic"></i>Carrusel inferior</span></h2>
+                <p class="tarjeta-sub">Se muestra después del pie de página. Mismas medidas recomendadas.</p>
+                <div class="lista" id="listaBannersInferior"></div>
+                <div class="lista-pie"><button type="button" class="btn btn-chico" data-agregar-banner="inferior"><i class="fas fa-plus"></i>Agregar banner</button></div>
+            </div>
+        </section>
+
+        <!-- CONTACTO -->
+        <section class="seccion" data-seccion="contacto">
+            <div class="seccion-cabecera">
+                <h1>Contacto</h1>
+                <p>A dónde llegan los pedidos y cómo te encuentran tus clientes.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fab fa-whatsapp ic"></i>WhatsApp de pedidos</span></h2>
+                <p class="tarjeta-sub">Cuando un cliente finaliza su compra, el pedido se arma como mensaje dirigido a este número.</p>
+                <div class="campos">
+                    <div class="campo"><label for="f-wsp">Número</label><input type="tel" id="f-wsp" data-campo="contacto.whatsappPedidos" placeholder="Ej: 11 2345 6789" maxlength="24"><small id="wspAyuda">Código de área + número. Si es de otro país, empezá con + y el código.</small></div>
+                    <div class="campo"><span class="etiqueta">Probar</span><a class="btn" id="wspProbar" target="_blank" rel="noopener" href="#"><i class="fab fa-whatsapp"></i>Abrir chat de prueba</a></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-address-book ic"></i>Contactos visibles</span></h2>
+                <p class="tarjeta-sub">Aparecen en el botón de WhatsApp del encabezado, en el panel de Contacto y en el pie. Con uno solo, el botón abre el chat directo.</p>
+                <div class="lista" id="listaContactos"></div>
+                <div class="lista-pie"><button type="button" class="btn btn-chico" data-agregar="contactos"><i class="fas fa-plus"></i>Agregar contacto</button></div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-store ic"></i>Datos de la tienda</span></h2>
+                <div class="campos">
+                    <div class="campo"><label for="f-email">Email</label><input type="email" id="f-email" data-campo="contacto.email" placeholder="ventas@mitienda.com"></div>
+                    <div class="campo"><label for="f-horario">Horario de atención</label><input type="text" id="f-horario" data-campo="contacto.horario" placeholder="Lunes a viernes de 9 a 18 hs"></div>
+                    <div class="campo"><label for="f-dir">Dirección</label><input type="text" id="f-dir" data-campo="contacto.direccion" placeholder="Calle 123, Localidad"></div>
+                    <div class="campo"><label for="f-maps">Enlace de Google Maps (opcional)</label><input type="url" id="f-maps" data-campo="contacto.mapsUrl" placeholder="https://maps.app.goo.gl/…"><small>Si lo dejás vacío, se busca la dirección.</small></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-hashtag ic"></i>Redes sociales</span></h2>
+                <p class="tarjeta-sub">Podés pegar el enlace completo o sólo el usuario (con o sin @).</p>
+                <div class="campos tres">
+                    <div class="campo"><label for="f-ig"><i class="fab fa-instagram"></i> Instagram</label><input type="text" id="f-ig" data-campo="contacto.redes.instagram" placeholder="@mitienda"></div>
+                    <div class="campo"><label for="f-fb"><i class="fab fa-facebook"></i> Facebook</label><input type="text" id="f-fb" data-campo="contacto.redes.facebook" placeholder="mitienda"></div>
+                    <div class="campo"><label for="f-tt"><i class="fab fa-tiktok"></i> TikTok</label><input type="text" id="f-tt" data-campo="contacto.redes.tiktok" placeholder="@mitienda"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TEXTOS -->
+        <section class="seccion" data-seccion="textos">
+            <div class="seccion-cabecera">
+                <h1>Textos</h1>
+                <p>Mensajes que acompañan al catálogo. En los textos largos podés usar **doble asterisco** para resaltar en negrita.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-bullhorn ic"></i>Anuncio superior</span></h2>
+                <p class="tarjeta-sub">Una franja de color arriba de todo, ideal para promociones o novedades.</p>
+                <div class="campos una">
+                    <label class="interruptor"><input type="checkbox" data-campo="textos.anuncio.activo"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Mostrar anuncio</strong></span></label>
+                    <div class="campo"><label for="f-anuncio">Texto</label><input type="text" id="f-anuncio" data-campo="textos.anuncio.texto" maxlength="160" placeholder="Ej: **Envío gratis** en compras mayores a $100.000"></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-grip-lines ic"></i>Franja informativa</span></h2>
+                <p class="tarjeta-sub">Hasta tres datos destacados debajo del carrusel (envíos, medios de pago, garantía…).</p>
+                <div class="lista" id="listaFranja"></div>
+                <div class="lista-pie"><button type="button" class="btn btn-chico" data-agregar="franja"><i class="fas fa-plus"></i>Agregar dato</button></div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-triangle-exclamation ic"></i>Aviso emergente</span><button type="button" class="btn btn-chico" data-probar="aviso"><i class="fas fa-play"></i>Probar</button></h2>
+                <p class="tarjeta-sub">Una ventana que aparece al entrar (una vez por visita). Útil para vacaciones, cambios de precios o demoras.</p>
+                <div class="campos una">
+                    <label class="interruptor"><input type="checkbox" data-campo="textos.aviso.activo"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Mostrar aviso al entrar</strong></span></label>
+                    <div class="campo"><label for="f-aviso-t">Título</label><input type="text" id="f-aviso-t" data-campo="textos.aviso.titulo" maxlength="60"></div>
+                    <div class="campo"><label for="f-aviso">Mensaje</label><textarea id="f-aviso" data-campo="textos.aviso.texto" maxlength="600"></textarea></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-scale-balanced ic"></i>Pie de página</span></h2>
+                <div class="campos una">
+                    <div class="campo"><label for="f-legal">Leyenda legal</label><input type="text" id="f-legal" data-campo="textos.pieLegal" maxlength="160"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FAQ -->
+        <section class="seccion" data-seccion="faq">
+            <div class="seccion-cabecera">
+                <h1>Preguntas frecuentes</h1>
+                <p>Se abren desde el menú y el pie. Opcionalmente, pueden mostrarse como bienvenida la primera vez que alguien entra.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-hand-sparkles ic"></i>Ventana de bienvenida</span><button type="button" class="btn btn-chico" data-probar="bienvenida"><i class="fas fa-play"></i>Probar</button></h2>
+                <div class="campos">
+                    <label class="interruptor campo ancho"><input type="checkbox" data-campo="bienvenida.activa"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Mostrar al entrar</strong><small>El cliente puede marcar "No volver a mostrar".</small></span></label>
+                    <div class="campo"><label for="f-bv-t">Título</label><input type="text" id="f-bv-t" data-campo="bienvenida.titulo" maxlength="60"></div>
+                    <div class="campo"><label for="f-bv-s">Subtítulo</label><input type="text" id="f-bv-s" data-campo="bienvenida.subtitulo" maxlength="60"></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-list-check ic"></i>Preguntas</span></h2>
+                <div class="lista" id="listaFaqs"></div>
+                <div class="lista-pie">
+                    <button type="button" class="btn btn-chico" data-agregar="faqs"><i class="fas fa-plus"></i>Agregar pregunta</button>
+                    <button type="button" class="btn btn-chico btn-texto" id="btnFaqsSugeridas"><i class="fas fa-wand-magic-sparkles"></i>Cargar preguntas sugeridas</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- PRECIOS -->
+        <section class="seccion" data-seccion="precios">
+            <div class="seccion-cabecera">
+                <h1>Precios</h1>
+                <p>Los precios se calculan solos a partir del <strong>costo</strong> de cada artículo (columna H de la lista). Cada escala define qué porcentaje de ganancia se suma según el costo.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-layer-group ic"></i>Escalas de ganancia</span><button type="button" class="btn btn-chico btn-texto" id="btnEscalasSugeridas"><i class="fas fa-rotate"></i>Restablecer sugeridas</button></h2>
+                <p class="tarjeta-sub">"Hasta" incluye el valor indicado. Ordenadas de menor a mayor costo; la última fila cubre todo lo que supere a la anterior.</p>
+                <table class="tabla-escalas">
+                    <thead><tr><th>Rango de costo</th><th class="col-hasta">Costo hasta</th><th class="col-pct">Ganancia</th><th>Ejemplo</th><th></th></tr></thead>
+                    <tbody id="tablaEscalas"></tbody>
+                </table>
+                <div class="lista-pie"><button type="button" class="btn btn-chico" id="btnAgregarEscala"><i class="fas fa-plus"></i>Agregar escala</button></div>
+                <div class="errores" id="erroresEscalas" hidden></div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-sliders ic"></i>Ajustes generales</span></h2>
+                <div class="campos tres">
+                    <div class="campo"><label for="f-ajuste">Ajuste global</label><div class="con-sufijo"><input type="number" id="f-ajuste" data-campo="precios.ajusteGlobal" step="0.5" min="-90" max="500"><span>%</span></div><small>Se aplica sobre todo después de la escala. Negativo = descuento.</small></div>
+                    <div class="campo"><label for="f-redondeo">Redondeo</label><select id="f-redondeo" data-campo="precios.redondeo" data-numero="1">
+                        <option value="1">Sin redondeo</option><option value="10">A $10</option><option value="50">A $50</option><option value="100">A $100</option><option value="500">A $500</option><option value="1000">A $1.000</option>
+                    </select><small>Siempre hacia arriba.</small></div>
+                    <div class="campo"><label for="f-sincosto">Artículos sin costo</label><select id="f-sincosto" data-campo="precios.sinCosto"><option value="ocultar">Ocultarlos</option><option value="consultar">Mostrar "Precio a consultar"</option></select></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-calculator ic"></i>Simulador</span></h2>
+                <div class="simulador">
+                    <div class="campo"><label for="simCosto">Costo de prueba</label><div class="con-prefijo"><span>$</span><input type="number" id="simCosto" min="0" step="100" value="8500" class="control"></div></div>
+                    <div class="simulador-resultado" id="simResultado"></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-magnifying-glass-dollar ic"></i>Con productos reales</span><span class="pastilla" id="cuentaProductos"></span></h2>
+                <p class="tarjeta-sub">Así quedan los precios de la lista con las escalas actuales (todavía sin guardar).</p>
+                <div class="campo" style="margin-bottom:12px"><input type="text" class="control" id="buscarProducto" placeholder="Buscar por nombre o código…"></div>
+                <div class="tabla-scroll" id="tablaProductos"><div class="cargando-linea"><span class="spinner"></span>Cargando productos…</div></div>
+            </div>
+        </section>
+
+        <!-- PEDIDOS -->
+        <section class="seccion" data-seccion="pedidos">
+            <div class="seccion-cabecera">
+                <h1>Pedidos</h1>
+                <p>Reglas del carrito y datos que se le piden al cliente antes de enviarte el pedido por WhatsApp. Ningún pedido se guarda en una base: llegan directo a tu chat.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-wallet ic"></i>Monto mínimo</span></h2>
+                <div class="campos">
+                    <div class="campo"><label for="f-min">Compra mínima</label><div class="con-prefijo"><span>$</span><input type="number" id="f-min" data-campo="pedido.montoMinimo" min="0" step="1000"></div><small>0 = sin mínimo.</small></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-tags ic"></i>Descuento por volumen</span></h2>
+                <div class="campos">
+                    <label class="interruptor campo ancho"><input type="checkbox" data-campo="pedido.descuento.activo"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Aplicar descuento automático</strong><small>Se descuenta del total cuando el pedido cumple las dos condiciones.</small></span></label>
+                    <div class="campo"><label for="f-dpct">Descuento</label><div class="con-sufijo"><input type="number" id="f-dpct" data-campo="pedido.descuento.pct" min="0" max="90" step="0.5"><span>%</span></div></div>
+                    <div class="campo"><label for="f-dmonto">Desde un total de</label><div class="con-prefijo"><span>$</span><input type="number" id="f-dmonto" data-campo="pedido.descuento.montoDesde" min="0" step="1000"></div></div>
+                    <div class="campo"><label for="f-dunid">Y al menos</label><div class="con-sufijo"><input type="number" id="f-dunid" data-campo="pedido.descuento.unidadesDesde" min="0" step="1"><span>u.</span></div></div>
+                    <div class="campo"><label for="f-dnota">Aclaración</label><input type="text" id="f-dnota" data-campo="pedido.descuento.nota" maxlength="100" placeholder="Ej: No acumulable con otras promociones"></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-truck-fast ic"></i>Formas de entrega</span></h2>
+                <p class="tarjeta-sub">El cliente elige una al finalizar. Si no cargás ninguna, no se pregunta.</p>
+                <div class="chips" id="chipsEntrega"></div>
+                <div class="fila-agregar"><input type="text" class="control" id="nuevaEntrega" placeholder="Ej: Retiro en el local" maxlength="50"><button type="button" class="btn" id="btnAgregarEntrega"><i class="fas fa-plus"></i>Agregar</button></div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-user-pen ic"></i>Datos del cliente</span><button type="button" class="btn btn-chico" data-probar="checkout"><i class="fas fa-play"></i>Probar</button></h2>
+                <p class="tarjeta-sub">El nombre siempre se pide. El resto, según lo que necesites.</p>
+                <div class="campos una">
+                    <label class="interruptor"><input type="checkbox" data-campo="pedido.pedirTelefono"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Pedir teléfono</strong><small>Se valida que tenga un formato correcto.</small></span></label>
+                    <label class="interruptor"><input type="checkbox" data-campo="pedido.pedirNotas"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Permitir notas</strong><small>Un campo libre para aclaraciones.</small></span></label>
+                    <div class="campo">
+                        <span class="etiqueta">Dirección de entrega</span>
+                        <div class="segmentos">
+                            <label><input type="radio" name="pedirDireccion" value="no" data-campo="pedido.pedirDireccion"><span>No pedir</span></label>
+                            <label><input type="radio" name="pedirDireccion" value="opcional" data-campo="pedido.pedirDireccion"><span>Opcional</span></label>
+                            <label><input type="radio" name="pedirDireccion" value="requerido" data-campo="pedido.pedirDireccion"><span>Obligatoria</span></label>
+                        </div>
+                    </div>
+                    <div class="campo"><label for="f-conf">Mensaje después de enviar</label><input type="text" id="f-conf" data-campo="pedido.textoConfirmacion" maxlength="200"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CATÁLOGO -->
+        <section class="seccion" data-seccion="catalogo">
+            <div class="seccion-cabecera">
+                <h1>Catálogo</h1>
+                <p>Qué se muestra de cada producto y qué categorías de la lista ofrecés.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-eye ic"></i>Visualización</span></h2>
+                <div class="campos">
+                    <label class="interruptor"><input type="checkbox" data-campo="catalogo.mostrarStock"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Mostrar disponibilidad</strong><small>Disponible / Últimas unidades / Sin stock.</small></span></label>
+                    <label class="interruptor"><input type="checkbox" data-campo="catalogo.mostrarCodigo"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Mostrar código del artículo</strong></span></label>
+                    <label class="interruptor"><input type="checkbox" data-campo="catalogo.soloDisponiblesPorDefecto"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>"Solo disponibles" activado al entrar</strong><small>Oculta de entrada los artículos sin stock.</small></span></label>
+                    <div class="campo"><label for="f-ppp">Productos por página</label><select id="f-ppp" data-campo="catalogo.productosPorPagina" data-numero="1"><option value="20">20</option><option value="30">30</option><option value="40">40</option><option value="60">60</option></select></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-folder-tree ic"></i>Categorías</span><span class="pastilla" id="cuentaCategorias"></span></h2>
+                <p class="tarjeta-sub">Destildá las categorías que no querés ofrecer: sus productos no aparecen en tu catálogo.</p>
+                <div class="lista-pie" style="margin:0 0 10px"><button type="button" class="btn btn-chico" id="btnCatTodas">Marcar todas</button><button type="button" class="btn btn-chico" id="btnCatNinguna">Desmarcar todas</button></div>
+                <div class="categorias-grid" id="listaCategorias"><div class="cargando-linea"><span class="spinner"></span>Cargando categorías…</div></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ===== Vista previa ===== -->
+    <aside class="preview" id="preview" aria-label="Vista previa del catálogo">
+        <div class="preview-barra">
+            <span class="titulo"><span class="vivo"></span>Vista previa en vivo</span>
+            <div class="segmentos" role="radiogroup" aria-label="Dispositivo">
+                <label><input type="radio" name="dispositivo" value="escritorio"><span><i class="fas fa-display"></i></span></label>
+                <label><input type="radio" name="dispositivo" value="movil" checked><span><i class="fas fa-mobile-screen"></i></span></label>
+            </div>
+            <button type="button" class="btn btn-icono btn-texto" id="btnRecargarPreview" title="Recargar vista previa" aria-label="Recargar vista previa"><i class="fas fa-rotate-right"></i></button>
+            <button type="button" class="btn btn-icono btn-texto preview-cerrar" id="btnCerrarPreview" aria-label="Cerrar vista previa"><i class="fas fa-xmark"></i></button>
+        </div>
+        <div class="preview-marco"><iframe id="previewFrame" title="Vista previa del catálogo"></iframe></div>
+        <div class="preview-pruebas">
+            <span class="etiqueta">Probar:</span>
+            <button type="button" class="btn btn-chico" data-probar="checkout"><i class="fab fa-whatsapp"></i>Pedido</button>
+            <button type="button" class="btn btn-chico" data-probar="bienvenida"><i class="fas fa-circle-question"></i>Bienvenida</button>
+            <button type="button" class="btn btn-chico" data-probar="aviso"><i class="fas fa-bullhorn"></i>Aviso</button>
+        </div>
+    </aside>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<input type="file" id="selectorArchivo" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden>
+</body>
+</html>
