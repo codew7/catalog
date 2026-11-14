@@ -58,6 +58,9 @@
 <div class="layout">
     <!-- ===== Navegación ===== -->
     <nav class="nav" id="nav" aria-label="Secciones del panel">
+        <div class="nav-grupo">Ventas</div>
+        <button type="button" class="nav-item" data-seccion="ventas"><i class="fas fa-receipt"></i>Pedidos<span class="nav-cuenta" id="navPedidos" hidden>0</span></button>
+        <button type="button" class="nav-item" data-seccion="facturacion"><i class="fas fa-chart-column"></i>Facturación</button>
         <div class="nav-grupo">Marca</div>
         <button type="button" class="nav-item activo" data-seccion="identidad"><i class="fas fa-id-badge"></i>Identidad</button>
         <button type="button" class="nav-item" data-seccion="apariencia"><i class="fas fa-palette"></i>Apariencia</button>
@@ -68,12 +71,67 @@
         <button type="button" class="nav-item" data-seccion="faq"><i class="fas fa-circle-question"></i>Preguntas frecuentes</button>
         <div class="nav-grupo">Venta</div>
         <button type="button" class="nav-item" data-seccion="precios"><i class="fas fa-percent"></i>Precios</button>
-        <button type="button" class="nav-item" data-seccion="pedidos"><i class="fab fa-whatsapp"></i>Pedidos</button>
+        <button type="button" class="nav-item" data-seccion="checkout"><i class="fas fa-cart-shopping"></i>Checkout</button>
         <button type="button" class="nav-item" data-seccion="catalogo"><i class="fas fa-table-cells-large"></i>Catálogo</button>
     </nav>
 
     <!-- ===== Formularios ===== -->
     <main class="contenido" id="contenido">
+
+        <!-- PEDIDOS (en vivo: no pasan por el borrador ni por "Guardar") -->
+        <section class="seccion seccion-ventas" data-seccion="ventas">
+            <div class="seccion-cabecera">
+                <h1>Pedidos</h1>
+                <p>Los pedidos que tus clientes confirman desde el catálogo llegan acá al instante. Marcalos como entregados cuando los completes. Se conservan 90 días.</p>
+            </div>
+            <div class="ventas-pulso" id="ventasPulso"></div>
+            <div class="barra-herramientas">
+                <div class="segmentos" id="filtroPedidos" role="radiogroup" aria-label="Filtrar pedidos">
+                    <label><input type="radio" name="filtroPedidos" value="abiertos" checked><span>Abiertos <b data-cuenta="abiertos"></b></span></label>
+                    <label><input type="radio" name="filtroPedidos" value="entregados"><span>Entregados <b data-cuenta="entregados"></b></span></label>
+                    <label><input type="radio" name="filtroPedidos" value="todos"><span>Todos <b data-cuenta="todos"></b></span></label>
+                </div>
+                <div class="buscador"><i class="fas fa-magnifying-glass"></i><input type="search" class="control" id="buscarPedidos" placeholder="Buscar por cliente, número, localidad o teléfono" autocomplete="off"></div>
+            </div>
+            <div class="lista-pedidos" id="listaPedidos"><div class="cargando-linea"><span class="spinner"></span>Cargando pedidos…</div></div>
+        </section>
+
+        <!-- FACTURACIÓN -->
+        <section class="seccion seccion-ventas" data-seccion="facturacion">
+            <div class="seccion-cabecera">
+                <h1>Facturación</h1>
+                <p>Lo que facturaste, lo que te costó la mercadería y lo que ganaste. Sólo cuentan los pedidos <strong>entregados</strong>, según el día en que los marcaste.</p>
+            </div>
+            <div class="periodo-barra">
+                <div class="segmentos segmentos-periodo" id="periodoFactura" role="radiogroup" aria-label="Período">
+                    <label><input type="radio" name="periodoFactura" value="hoy"><span>Hoy</span></label>
+                    <label><input type="radio" name="periodoFactura" value="7"><span>7 días</span></label>
+                    <label><input type="radio" name="periodoFactura" value="30" checked><span>30 días</span></label>
+                    <label><input type="radio" name="periodoFactura" value="mes"><span>Este mes</span></label>
+                    <label><input type="radio" name="periodoFactura" value="mesAnterior"><span>Mes anterior</span></label>
+                    <label><input type="radio" name="periodoFactura" value="90"><span>90 días</span></label>
+                    <label><input type="radio" name="periodoFactura" value="personalizado"><span><i class="fas fa-calendar-days"></i>Elegir fechas</span></label>
+                </div>
+                <div class="periodo-fechas" id="periodoFechas" hidden>
+                    <label>Desde <input type="date" class="control" id="facturaDesde"></label>
+                    <label>Hasta <input type="date" class="control" id="facturaHasta"></label>
+                    <small>Los registros se conservan 90 días: no hay datos más viejos.</small>
+                </div>
+            </div>
+            <p class="periodo-rango" id="periodoRango"></p>
+            <div class="factura-kpis" id="facturaKpis"></div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-chart-column ic"></i>Evolución</span><span class="grafico-leyenda"><span class="ley-facturado">Facturado</span><span class="ley-ganancia">Ganancia</span></span></h2>
+                <div class="grafico" id="graficoFactura"></div>
+            </div>
+            <div class="factura-dos">
+                <div class="tarjeta">
+                    <h2 class="tarjeta-titulo"><span><i class="fas fa-ranking-star ic"></i>Productos que más ganancia dejaron</span></h2>
+                    <div id="facturaTop"></div>
+                </div>
+                <div class="tarjeta tarjeta-pendiente" id="facturaPendiente"></div>
+            </div>
+        </section>
 
         <!-- IDENTIDAD -->
         <section class="seccion activa" data-seccion="identidad">
@@ -309,10 +367,10 @@
         </section>
 
         <!-- PEDIDOS -->
-        <section class="seccion" data-seccion="pedidos">
+        <section class="seccion" data-seccion="checkout">
             <div class="seccion-cabecera">
-                <h1>Pedidos</h1>
-                <p>Reglas del carrito y datos que se le piden al cliente antes de enviarte el pedido por WhatsApp. Ningún pedido se guarda en una base: llegan directo a tu chat.</p>
+                <h1>Checkout</h1>
+                <p>Reglas del carrito y datos que se le piden al cliente para confirmar el pedido. Cada pedido queda registrado en <strong>Ventas → Pedidos</strong> y el cliente te avisa por WhatsApp con el número.</p>
             </div>
             <div class="tarjeta">
                 <h2 class="tarjeta-titulo"><span><i class="fas fa-wallet ic"></i>Monto mínimo</span></h2>
@@ -332,15 +390,22 @@
             </div>
             <div class="tarjeta">
                 <h2 class="tarjeta-titulo"><span><i class="fas fa-truck-fast ic"></i>Formas de entrega</span></h2>
-                <p class="tarjeta-sub">El cliente elige una al finalizar. Si no cargás ninguna, no se pregunta.</p>
+                <p class="tarjeta-sub">Opcional. El cliente elige una al finalizar; si no cargás ninguna, no se pregunta.</p>
                 <div class="chips" id="chipsEntrega"></div>
                 <div class="fila-agregar"><input type="text" class="control" id="nuevaEntrega" placeholder="Ej: Retiro en el local" maxlength="50"><button type="button" class="btn" id="btnAgregarEntrega"><i class="fas fa-plus"></i>Agregar</button></div>
             </div>
             <div class="tarjeta">
                 <h2 class="tarjeta-titulo"><span><i class="fas fa-user-pen ic"></i>Datos del cliente</span><button type="button" class="btn btn-chico" data-probar="checkout"><i class="fas fa-play"></i>Probar</button></h2>
-                <p class="tarjeta-sub">El nombre siempre se pide. El resto, según lo que necesites.</p>
+                <p class="tarjeta-sub">Estos datos se piden siempre y son obligatorios:</p>
+                <div class="datos-fijos">
+                    <span><i class="fas fa-user"></i>Nombre y apellido</span>
+                    <span><i class="fas fa-phone"></i>Teléfono</span>
+                    <span><i class="fas fa-envelope"></i>Email</span>
+                    <span><i class="fas fa-map"></i>Provincia</span>
+                    <span><i class="fas fa-location-dot"></i>Localidad</span>
+                </div>
+                <p class="tarjeta-sub">Y si los necesitás, podés sumar estos (la forma de entrega se configura arriba):</p>
                 <div class="campos una">
-                    <label class="interruptor"><input type="checkbox" data-campo="pedido.pedirTelefono"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Pedir teléfono</strong><small>Se valida que tenga un formato correcto.</small></span></label>
                     <label class="interruptor"><input type="checkbox" data-campo="pedido.pedirNotas"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Permitir notas</strong><small>Un campo libre para aclaraciones.</small></span></label>
                     <div class="campo">
                         <span class="etiqueta">Dirección de entrega</span>

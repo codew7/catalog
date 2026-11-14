@@ -4,8 +4,9 @@
    Parte de catalogoRAW.js (catálogo mayorista) con estos cambios:
    · Precio = costo de la columna H ajustado por las escalas de la tienda
      (TiendaCore.calcularPrecio), no las columnas G/N.
-   · Sin Firebase ni EmailJS: los clientes no escriben en ninguna base. El
-     pedido se arma como mensaje y se envía por WhatsApp.
+   · Sin SDK de Firebase: el pedido se registra por REST en
+     tiendas/<id>/pedidos (status ABIERTO, con el costo de cada artículo) y
+     después el cliente avisa por WhatsApp con un mensaje corto.
    · Nombre, logo, colores, textos, contactos, banners y reglas del pedido
      salen de la configuración de la tienda (admin.html).
    Corre al final del <body>, así que el DOM ya existe.
@@ -348,6 +349,7 @@
             lista.push({
                 clave: codigo || nombre,
                 categoria, codigo, nombre, precio,
+                costo: T.parsearMonto(f[COL.COSTO]),
                 imagenes: imagenes.filter(u => /^https?:\/\//i.test(u) || /\.(jpe?g|png|gif|webp)$/i.test(u)),
                 stock: leerStock(f[COL.STOCK]),
                 fecha: parsearFecha(f[COL.FECHA]),
@@ -1239,10 +1241,9 @@
     }
 
     // ======================================================================
-    // 9 · CHECKOUT POR WHATSAPP
+    // 9 · CHECKOUT · el pedido se registra en la base y se avisa por WhatsApp
     // ======================================================================
     let entregaElegida = '';
-    let ultimoEnlacePedido = '';
 
     function formasEntrega() {
         return T.aArray(CFG.pedido.formasEntrega).map(f => String(f || '').trim()).filter(Boolean);
@@ -1281,7 +1282,7 @@
         if (!el) return;
         el.innerHTML = msg ? `<i class="fas fa-circle-exclamation" aria-hidden="true"></i><span>${esc(msg)}</span>` : '';
         el.hidden = !msg;
-        const input = el.parentElement.querySelector('input');
+        const input = el.parentElement.querySelector('input, select');
         if (input) {
             input.classList.toggle('is-invalid', !!msg);
             if (msg) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
@@ -1302,6 +1303,186 @@
         return { ok: true, numero: T.formatearTelefono(n) };
     }
 
+    // ---- Provincias y localidades de Argentina ----
+    // localidades-ar.json: { p: [provincias], l: [[localidades de cada una]] }.
+    // Se pide recién al abrir el checkout y el navegador lo guarda en caché.
+    let geo = null;
+    let promesaGeo = null;
+    function cargarGeo() {
+        if (geo) return Promise.resolve(geo);
+        if (!promesaGeo) {
+            promesaGeo = fetch(new URL('localidades-ar.json', T.BASE_SITIO).href)
+                .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(d => { geo = d; return d; })
+                .catch(e => { promesaGeo = null; throw e; });
+        }
+        return promesaGeo;
+    }
+
+    const sinTildes = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+    function localidadesDe(provincia) {
+        const i = geo ? geo.p.indexOf(provincia) : -1;
+        return i < 0 ? [] : geo.l[i];
+    }
+
+    function pintarProvincias(elegida) {
+        const sel = $('ckProvincia');
+        if (!geo) {
+            sel.innerHTML = '<option value="">Cargando…</option>';
+            sel.disabled = true;
+            return;
+        }
+        sel.disabled = false;
+        sel.innerHTML = '<option value="">Elegí tu provincia</option>' +
+            geo.p.map(p => `<option${p === elegida ? ' selected' : ''}>${esc(p)}</option>`).join('');
+        prepararLocalidad();
+    }
+
+    // Combobox de localidad: se escribe para filtrar y sólo se aceptan
+    // valores de la lista de la provincia elegida.
+    const combo = { opciones: [], activo: -1, elegida: '' };
+    const MAX_OPCIONES = 80;
+
+    function prepararLocalidad() {
+        const prov = $('ckProvincia').value;
+        const input = $('ckLocalidad');
+        input.disabled = !prov;
+        input.placeholder = prov ? 'Escribí para buscar' : 'Elegí la provincia';
+        if (combo.elegida && !localidadesDe(prov).includes(combo.elegida)) {
+            combo.elegida = '';
+            input.value = '';
+        }
+        cerrarCombo();
+    }
+
+    function filtrarLocalidades(texto) {
+        const todas = localidadesDe($('ckProvincia').value);
+        const q = sinTildes(texto);
+        if (!q) return todas;
+        // Primero las que empiezan con lo escrito, después las que tienen una
+        // palabra que empieza así y al final las que lo contienen.
+        const empiezan = [], palabra = [], contienen = [];
+        todas.forEach(l => {
+            const n = sinTildes(l);
+            const pos = n.indexOf(q);
+            if (pos === 0) empiezan.push(l);
+            else if (n.indexOf(' ' + q) > -1) palabra.push(l);
+            else if (pos > 0) contienen.push(l);
+        });
+        return empiezan.concat(palabra, contienen);
+    }
+
+    function resaltar(nombre, texto) {
+        const q = sinTildes(texto);
+        if (!q) return esc(nombre);
+        const pos = sinTildes(nombre).indexOf(q);
+        if (pos < 0) return esc(nombre);
+        // normalize('NFD') puede cambiar el largo: se recorta sobre el original
+        // sólo si la longitud coincide (lo habitual en nombres de localidades).
+        if (sinTildes(nombre).length !== nombre.length) return esc(nombre);
+        return esc(nombre.slice(0, pos)) + '<mark>' + esc(nombre.slice(pos, pos + q.length)) + '</mark>' + esc(nombre.slice(pos + q.length));
+    }
+
+    function abrirCombo() {
+        const input = $('ckLocalidad');
+        if (input.disabled) return;
+        const texto = input.value === combo.elegida ? '' : input.value;
+        const lista = filtrarLocalidades(texto);
+        combo.opciones = lista.slice(0, MAX_OPCIONES);
+        combo.activo = combo.opciones.indexOf(combo.elegida);
+        if (combo.activo < 0 && texto && combo.opciones.length) combo.activo = 0;
+        const ul = $('ckLocalidadLista');
+        ul.innerHTML = combo.opciones.length
+            ? combo.opciones.map((l, i) => `<li role="option" id="ckLoc-${i}" data-i="${i}" aria-selected="${i === combo.activo}">${resaltar(l, texto)}</li>`).join('') +
+              (lista.length > MAX_OPCIONES ? `<li class="combo-mas" aria-hidden="true">Seguí escribiendo para ver más (${lista.length - MAX_OPCIONES} más)</li>` : '')
+            : '<li class="combo-vacio" aria-hidden="true">No encontramos esa localidad en la provincia elegida.</li>';
+        ul.hidden = false;
+        $('ckLocalidadCombo').setAttribute('data-abierto', '');
+        input.setAttribute('aria-expanded', 'true');
+        marcarActivo();
+    }
+
+    function cerrarCombo() {
+        $('ckLocalidadLista').hidden = true;
+        $('ckLocalidadCombo').removeAttribute('data-abierto');
+        const input = $('ckLocalidad');
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
+    }
+
+    function marcarActivo() {
+        const ul = $('ckLocalidadLista');
+        ul.querySelectorAll('li[role="option"]').forEach(li => li.setAttribute('aria-selected', String(Number(li.dataset.i) === combo.activo)));
+        const input = $('ckLocalidad');
+        if (combo.activo >= 0) {
+            input.setAttribute('aria-activedescendant', 'ckLoc-' + combo.activo);
+            const li = $('ckLoc-' + combo.activo);
+            if (li) li.scrollIntoView({ block: 'nearest' });
+        } else input.removeAttribute('aria-activedescendant');
+    }
+
+    function elegirLocalidad(nombre) {
+        combo.elegida = nombre;
+        $('ckLocalidad').value = nombre;
+        mostrarError('ckLocalidadError', '');
+        cerrarCombo();
+    }
+
+    // Al salir del campo, si lo escrito coincide con una localidad (sin
+    // importar tildes ni mayúsculas) se toma; si no, se descarta.
+    function confirmarLocalidadEscrita() {
+        const input = $('ckLocalidad');
+        const v = sinTildes(input.value);
+        if (!v) { combo.elegida = ''; return; }
+        const exacta = localidadesDe($('ckProvincia').value).find(l => sinTildes(l) === v);
+        if (exacta) { combo.elegida = exacta; input.value = exacta; }
+        else if (input.value !== combo.elegida) input.value = combo.elegida;
+    }
+
+    $('ckProvincia').addEventListener('change', () => {
+        mostrarError('ckProvinciaError', '');
+        prepararLocalidad();
+        if ($('ckProvincia').value) setTimeout(() => $('ckLocalidad').focus(), 0);
+    });
+    $('ckLocalidad').addEventListener('focus', abrirCombo);
+    $('ckLocalidad').addEventListener('click', abrirCombo);
+    $('ckLocalidad').addEventListener('input', () => { mostrarError('ckLocalidadError', ''); abrirCombo(); });
+    $('ckLocalidad').addEventListener('keydown', e => {
+        const abierto = !$('ckLocalidadLista').hidden;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!abierto) { abrirCombo(); return; }
+            const n = combo.opciones.length;
+            if (!n) return;
+            combo.activo = e.key === 'ArrowDown' ? (combo.activo + 1) % n : (combo.activo - 1 + n) % n;
+            marcarActivo();
+        } else if (e.key === 'Enter') {
+            if (abierto && combo.activo >= 0 && combo.opciones[combo.activo]) {
+                e.preventDefault();
+                elegirLocalidad(combo.opciones[combo.activo]);
+            }
+        } else if (e.key === 'Escape') {
+            if (abierto) { e.preventDefault(); e.stopPropagation(); cerrarCombo(); }
+        } else if (e.key === 'Tab') {
+            if (abierto && combo.activo >= 0 && $('ckLocalidad').value && combo.opciones[combo.activo]) elegirLocalidad(combo.opciones[combo.activo]);
+        }
+    });
+    $('ckLocalidad').addEventListener('blur', () => {
+        // pequeña espera: un toque en la lista dispara blur antes que el click
+        setTimeout(() => {
+            if (document.activeElement === $('ckLocalidad')) return;
+            confirmarLocalidadEscrita();
+            cerrarCombo();
+        }, 120);
+    });
+    // mousedown evita que el input pierda el foco antes de elegir
+    $('ckLocalidadLista').addEventListener('mousedown', e => e.preventDefault());
+    $('ckLocalidadLista').addEventListener('click', e => {
+        const li = e.target.closest('li[role="option"]');
+        if (li) elegirLocalidad(combo.opciones[Number(li.dataset.i)]);
+    });
+
     function abrirCheckout() {
         if (!carrito.length) { avisoBreve('Tu carrito está vacío'); return; }
         const r = resumenCarrito();
@@ -1313,7 +1494,6 @@
         cerrarCarrito();
 
         const p = CFG.pedido;
-        $('ckTelefonoGrupo').hidden = !p.pedirTelefono;
         $('ckDireccionGrupo').hidden = p.pedirDireccion === 'no';
         $('ckDireccionOpcional').hidden = p.pedirDireccion === 'requerido';
         $('ckNotasGrupo').hidden = !p.pedirNotas;
@@ -1321,18 +1501,33 @@
         const cliente = leerLocal(CLAVE_CLIENTE) || {};
         if (!$('ckNombre').value) $('ckNombre').value = cliente.nombre || '';
         if (!$('ckTelefono').value) $('ckTelefono').value = cliente.telefono || '';
+        if (!$('ckEmail').value) $('ckEmail').value = cliente.email || '';
         if (!$('ckDireccion').value) $('ckDireccion').value = cliente.direccion || '';
         if (!entregaElegida && cliente.entrega) entregaElegida = cliente.entrega;
 
-        ['ckNombreError', 'ckTelefonoError', 'ckEntregaError', 'ckDireccionError'].forEach(id => mostrarError(id, ''));
+        const provPrevia = $('ckProvincia').value || cliente.provincia || '';
+        const locPrevia = combo.elegida || cliente.localidad || '';
+        pintarProvincias(provPrevia);
+        cargarGeo().then(() => {
+            pintarProvincias($('ckProvincia').value || provPrevia);
+            if (locPrevia && localidadesDe($('ckProvincia').value).includes(locPrevia)) {
+                combo.elegida = locPrevia;
+                $('ckLocalidad').value = locPrevia;
+            }
+        }).catch(() => {
+            $('ckProvincia').innerHTML = '<option value="">No se pudo cargar la lista</option>';
+            mostrarError('ckProvinciaError', 'No pudimos cargar las provincias. Revisá tu conexión y volvé a abrir el formulario.');
+        });
+
+        ['ckNombreError', 'ckTelefonoError', 'ckEmailError', 'ckProvinciaError', 'ckLocalidadError', 'ckEntregaError', 'ckDireccionError', 'ckEnvioError']
+            .forEach(id => mostrarError(id, ''));
         pintarOpcionesEntrega();
         pintarResumenCheckout();
+        estadoEnvio(false);
 
-        const num = numeroPedidos();
-        $('ckEnviarBtn').disabled = !num;
-        $('ckNota').textContent = num
-            ? 'Se abrirá WhatsApp con el detalle de tu pedido listo para enviar.'
-            : 'Esta tienda todavía no configuró su WhatsApp para recibir pedidos.';
+        $('ckNota').textContent = T.urlNodo('pedidos')
+            ? 'Al confirmar, tu pedido queda registrado y podés avisarle a la tienda por WhatsApp.'
+            : 'Esta tienda todavía no puede recibir pedidos.';
 
         $('checkoutPaso').hidden = false;
         $('checkoutExito').hidden = true;
@@ -1340,7 +1535,17 @@
         setTimeout(() => (ES_PREVIEW ? null : $('ckNombre').focus()), 60);
     }
 
-    function cerrarCheckout() { $('checkoutModal').style.display = 'none'; }
+    function cerrarCheckout() { $('checkoutModal').style.display = 'none'; cerrarCombo(); }
+
+    function estadoEnvio(enviando) {
+        const b = $('ckEnviarBtn');
+        b.classList.toggle('cargando', enviando);
+        b.disabled = enviando || !T.urlNodo('pedidos');
+        b.querySelector('i, .spinner-boton').outerHTML = enviando
+            ? '<span class="spinner-boton" aria-hidden="true"></span>'
+            : '<i class="fas fa-check" aria-hidden="true"></i>';
+        $('ckEnviarTexto').textContent = enviando ? 'Registrando pedido…' : 'Confirmar pedido';
+    }
 
     document.querySelectorAll('[data-cerrar-checkout]').forEach(b => b.addEventListener('click', cerrarCheckout));
     $('checkoutModal').addEventListener('mousedown', e => { if (e.target === e.currentTarget) cerrarCheckout(); });
@@ -1354,95 +1559,168 @@
         const v = validarTelefono(this.value);
         if (!v.ok) mostrarError('ckTelefonoError', v.msg);
     });
+    $('ckEmail').addEventListener('input', () => mostrarError('ckEmailError', ''));
+    $('ckEmail').addEventListener('blur', function () {
+        if (this.value.trim() && !T.validarEmail(this.value)) mostrarError('ckEmailError', 'Revisá el email: parece incompleto.');
+    });
     $('ckNombre').addEventListener('input', () => mostrarError('ckNombreError', ''));
     $('ckDireccion').addEventListener('input', () => mostrarError('ckDireccionError', ''));
+
+    // Costo de cada artículo al momento de la compra (columna H). Queda
+    // guardado en el pedido para que la facturación no cambie si después se
+    // edita la hoja.
+    function costoDe(clave) {
+        const p = productos.find(x => x.clave === clave);
+        return p && isFinite(p.costo) && p.costo > 0 ? Math.round(p.costo * 100) / 100 : 0;
+    }
+
+    // Sólo se guarda lo que no se puede calcular después: unidades, subtotal,
+    // descuento y costo total salen de los artículos en el panel. Los campos
+    // vacíos no se envían (en la base no ocupan lugar).
+    function armarPedido(datos) {
+        const r = resumenCarrito();
+        const items = carrito.map(it => {
+            const item = { nombre: String(it.nombre).slice(0, 160), cantidad: it.cantidad, precio: Number(it.precio) || 0 };
+            const costo = costoDe(it.clave);
+            if (costo) item.costo = costo;
+            if (it.codigo) item.codigo = String(it.codigo).slice(0, 60);
+            return item;
+        });
+        return {
+            numero: T.generarNumeroPedido(),
+            fecha: { '.sv': 'timestamp' },
+            status: T.ESTADOS_PEDIDO.ABIERTO,
+            cliente: datos,
+            items,
+            total: r.totalFinal
+        };
+    }
+
+    // Clave corta del pedido: tiempo + azar (14 caracteres en vez de los 20
+    // de un push de Firebase). El orden se toma de "fecha", no de la clave.
+    function clavePedido() {
+        const azar = new Uint8Array(6);
+        crypto.getRandomValues(azar);
+        return Date.now().toString(36) + Array.from(azar, b => (b % 36).toString(36)).join('');
+    }
+
+    // Una sola escritura en dos rutas: el pedido y la marca "ultimoPedido" de
+    // la tienda. Las reglas exigen unos segundos entre pedidos de una misma
+    // tienda, así nadie puede llenar la base con pedidos falsos en masa. Si
+    // justo coincidió con otro cliente, se reintenta solo.
+    function guardarPedido(pedido, intento) {
+        if (ES_PREVIEW) return new Promise(res => setTimeout(res, 700));   // la vista previa no escribe
+        // print=silent: Firebase responde vacío en vez de devolver todo lo escrito
+        const url = `${T.baseDatosUrl()}/tiendas/${encodeURIComponent(T.tiendaId())}.json?print=silent`;
+        const cuerpo = { ['pedidos/' + clavePedido()]: pedido, ultimoPedido: { '.sv': 'timestamp' } };
+        return fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) })
+            .then(r => {
+                if (r.ok) return true;
+                const e = new Error('HTTP ' + r.status);
+                e.status = r.status;
+                throw e;
+            })
+            .catch(e => {
+                const n = intento || 0;
+                if (n < 2 && (e.status === 401 || e.status === 403)) {
+                    return new Promise(res => setTimeout(res, 3500)).then(() => guardarPedido(pedido, n + 1));
+                }
+                throw e;
+            });
+    }
+
+    function avisoWhatsApp(numero, nombre) {
+        const num = numeroPedidos();
+        if (!num) return '';
+        return T.urlWhatsApp(num, `🛒 Tengo un pedido nuevo *#${numero}* en espera · ${nombre}`);
+    }
 
     $('ckEnviarBtn').addEventListener('click', () => {
         const p = CFG.pedido;
         const datos = { nombre: $('ckNombre').value.trim() };
         let primero = null;
+        const marcar = (id, msg, el) => { mostrarError(id, msg); primero = primero || el; };
 
-        if (datos.nombre.length < 2) { mostrarError('ckNombreError', 'Completá tu nombre.'); primero = primero || $('ckNombre'); }
+        if (datos.nombre.length < 2) marcar('ckNombreError', 'Completá tu nombre y apellido.', $('ckNombre'));
 
-        if (p.pedirTelefono) {
-            const v = validarTelefono($('ckTelefono').value);
-            if (!v.ok) { mostrarError('ckTelefonoError', v.msg); primero = primero || $('ckTelefono'); }
-            else datos.telefono = v.numero;
-        }
+        const tel = validarTelefono($('ckTelefono').value);
+        if (!tel.ok) marcar('ckTelefonoError', tel.msg, $('ckTelefono'));
+        else datos.telefono = tel.numero.replace(/\D/g, '');   // sólo dígitos: el panel le da formato
+
+        const email = $('ckEmail').value.trim();
+        if (!email) marcar('ckEmailError', 'Ingresá tu email.', $('ckEmail'));
+        else if (!T.validarEmail(email)) marcar('ckEmailError', 'Revisá el email: parece incompleto.', $('ckEmail'));
+        else datos.email = email.toLowerCase();
+
+        const provincia = $('ckProvincia').value;
+        if (!provincia) marcar('ckProvinciaError', 'Elegí tu provincia.', $('ckProvincia'));
+        else datos.provincia = provincia;
+
+        confirmarLocalidadEscrita();
+        if (provincia && !combo.elegida) marcar('ckLocalidadError', 'Elegí tu localidad de la lista.', $('ckLocalidad'));
+        else if (combo.elegida) datos.localidad = combo.elegida;
 
         if (formasEntrega().length) {
-            if (!entregaElegida) { mostrarError('ckEntregaError', 'Elegí cómo querés recibir el pedido.'); primero = primero || $('ckEntregaOpciones'); }
-            datos.entrega = entregaElegida;
+            if (!entregaElegida) marcar('ckEntregaError', 'Elegí cómo querés recibir el pedido.', $('ckEntregaOpciones'));
+            else datos.entrega = entregaElegida;
         }
 
         if (p.pedirDireccion !== 'no') {
-            datos.direccion = $('ckDireccion').value.trim();
-            if (p.pedirDireccion === 'requerido' && datos.direccion.length < 5) {
-                mostrarError('ckDireccionError', 'Indicá la dirección de entrega.');
-                primero = primero || $('ckDireccion');
-            }
+            const dir = $('ckDireccion').value.trim();
+            if (p.pedirDireccion === 'requerido' && dir.length < 5) marcar('ckDireccionError', 'Indicá la dirección de entrega.', $('ckDireccion'));
+            if (dir) datos.direccion = dir.slice(0, 140);
         }
-        if (p.pedirNotas) datos.notas = $('ckNotas').value.trim();
+        if (p.pedirNotas) {
+            const notas = $('ckNotas').value.trim();
+            if (notas) datos.notas = notas.slice(0, 400);
+        }
 
         if (primero) { if (primero.focus) primero.focus(); return; }
-
-        const num = numeroPedidos();
-        if (!num) return;
-
-        guardarLocal(CLAVE_CLIENTE, { nombre: datos.nombre, telefono: $('ckTelefono').value.trim(), direccion: datos.direccion || '', entrega: datos.entrega || '' });
-
-        const mensaje = construirMensaje(datos);
-        ultimoEnlacePedido = T.urlWhatsApp(num, mensaje);
-        window.open(ultimoEnlacePedido, '_blank', 'noopener');
-
-        $('ckReabrirBtn').href = ultimoEnlacePedido;
-        $('checkoutExitoTexto').textContent = p.textoConfirmacion || 'Te vamos a responder por WhatsApp.';
-        $('checkoutPaso').hidden = true;
-        $('checkoutExito').hidden = false;
-        $('ckNotas').value = '';
-        vaciarCarrito();
-    });
-
-    // Mensaje del pedido. Pasa a formato compacto si se hace largo, para que
-    // WhatsApp no trunque el enlace.
-    const MAX_CARACTERES = 1500;
-    function construirMensaje(d) {
-        const r = resumenCarrito();
-        const fm = T.formatearMonto;
-        const SEP = '─────────────────';
-        const tienda = nombreTienda();
-
-        const cab = [`🛒 *NUEVO PEDIDO*${tienda ? ' · ' + tienda : ''}`, ''];
-        cab.push(`👤 *Cliente:* ${d.nombre}`);
-        if (d.telefono) cab.push(`📞 ${d.telefono}`);
-        if (d.entrega) cab.push(`🚚 *Entrega:* ${d.entrega}`);
-        if (d.direccion) cab.push(`📍 ${d.direccion}`);
-        if (d.notas) cab.push(`📝 ${d.notas}`);
-        cab.push('', SEP, '*ARTÍCULOS*', '');
-
-        const pie = ['', SEP];
-        pie.push(`Unidades: ${r.unidades}`);
-        if (r.aplicaDescuento) {
-            pie.push(`Subtotal: ${fm(r.totalBruto)}`);
-            pie.push(`Descuento (${r.pctDescuento}%): -${fm(r.montoDescuento)}`);
+        if (!T.urlNodo('pedidos')) return;
+        if (carrito.length > 100) {
+            mostrarError('ckEnvioError', 'El pedido tiene más de 100 artículos distintos. Dividilo en dos pedidos, por favor.');
+            return;
         }
-        pie.push(`*TOTAL: ${fm(r.totalFinal)}*`);
 
-        const detallado = [];
-        carrito.forEach((it, i) => {
-            detallado.push(`${i + 1}. ${it.nombre}`);
-            if (it.codigo) detallado.push(`   Cód: ${it.codigo}`);
-            detallado.push(`   ${it.cantidad} x ${fm(it.precio)} = ${fm(it.precio * it.cantidad)}`, '');
+        guardarLocal(CLAVE_CLIENTE, {
+            nombre: datos.nombre, telefono: $('ckTelefono').value.trim(), email: datos.email,
+            provincia: datos.provincia, localidad: datos.localidad,
+            direccion: datos.direccion || '', entrega: datos.entrega || ''
         });
-        detallado.pop();
 
-        const mensaje = [...cab, ...detallado, ...pie].join('\n');
-        if (mensaje.length <= MAX_CARACTERES) return mensaje;
+        const pedido = armarPedido(datos);
+        const enlace = avisoWhatsApp(pedido.numero, datos.nombre);
 
-        const compacto = carrito.map((it, i) =>
-            `${i + 1}. ${it.cantidad} x ${it.nombre}${it.codigo ? ' (' + it.codigo + ')' : ''} = ${fm(it.precio * it.cantidad)}`);
-        return [...cab, ...compacto, ...pie].join('\n');
-    }
+        // La pestaña de WhatsApp se abre ya, dentro del clic: si se abriera
+        // después de guardar, el navegador la bloquearía como ventana emergente.
+        let ventana = null;
+        if (enlace && !ES_PREVIEW) {
+            try { ventana = window.open('', '_blank'); } catch (e) { ventana = null; }
+        }
+
+        mostrarError('ckEnvioError', '');
+        estadoEnvio(true);
+        guardarPedido(pedido).then(() => {
+            if (ventana) {
+                try { ventana.opener = null; ventana.location.href = enlace; } catch (e) {}
+            }
+            $('ckReabrirBtn').href = enlace || '#';
+            $('ckReabrirBtn').hidden = !enlace;
+            $('checkoutNumero').textContent = '#' + pedido.numero;
+            $('checkoutExitoTexto').textContent = p.textoConfirmacion || 'Te vamos a responder por WhatsApp.';
+            $('checkoutPaso').hidden = true;
+            $('checkoutExito').hidden = false;
+            $('ckNotas').value = '';
+            vaciarCarrito();
+        }).catch(err => {
+            if (ventana) { try { ventana.close(); } catch (e) {} }
+            console.error('No se pudo registrar el pedido:', err);
+            const msg = err && (err.status === 401 || err.status === 403)
+                ? 'La tienda no está recibiendo pedidos en este momento.'
+                : 'No pudimos registrar tu pedido. Revisá tu conexión y tocá “Confirmar pedido” de nuevo.';
+            mostrarError('ckEnvioError', msg);
+        }).finally(() => estadoEnvio(false));
+    });
 
     function mostrarModalMinimo(minimo, actual) {
         const previo = $('monto-minimo-modal');

@@ -1,6 +1,6 @@
 # Catálogo
 
-Catálogo online con pedidos por WhatsApp. Cada tienda tiene su dirección:
+Catálogo online. Los pedidos quedan registrados en la base (`tiendas/<id>/pedidos`) y el cliente avisa por WhatsApp con el número de pedido. Cada tienda tiene su dirección:
 
 ```
 https://catalog.dev.ar/<tienda>         → catálogo
@@ -19,7 +19,8 @@ No hay que editar nada al crear una tienda nueva. `404.html` resuelve las direcc
 |---|---|
 | `index.html` / `catalogo.js` | Catálogo (uno solo para todas las tiendas). |
 | `404.html` | Direcciones limpias por tienda. |
-| `admin.html` / `admin.js` | Panel de cada tienda, con vista previa en vivo. |
+| `admin.html` / `admin.js` | Panel de cada tienda: ventas (pedidos y facturación) y configuración con vista previa en vivo. |
+| `localidades-ar.json` | Provincias y localidades de Argentina para el checkout. |
 | `admin-auth.js` | Login del panel, cambio de contraseña y "Mi cuenta". |
 | `tienda-core.js` | Núcleo compartido: detección de la tienda, precios, colores y caché. |
 | `panel.css` | Estilos del panel. |

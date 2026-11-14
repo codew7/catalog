@@ -74,12 +74,19 @@
     // 2 · NAVEGACIÓN ENTRE SECCIONES
     // ======================================================================
     function irA(seccion) {
+        if (seccion === 'pedidos') seccion = 'checkout';   // nombre anterior de la sección
+        if (!document.querySelector(`.seccion[data-seccion="${seccion}"]`)) seccion = 'ventas';
+        const esVentas = seccion === 'ventas' || seccion === 'facturacion';
+        document.querySelector('.layout').classList.toggle('sin-preview', esVentas);
+        document.body.classList.toggle('modo-ventas', esVentas);
+        if (esVentas) $('preview').classList.remove('abierta');
         document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('activo', b.dataset.seccion === seccion));
         document.querySelectorAll('.seccion').forEach(s => s.classList.toggle('activa', s.dataset.seccion === seccion));
         try { sessionStorage.setItem('admin-seccion', seccion); } catch (e) {}
         $('contenido').scrollTop = 0;
         window.scrollTo({ top: 0 });
         if ((seccion === 'precios' || seccion === 'catalogo') && !filasHoja) cargarHoja();
+        if (esVentas && typeof programarVentas === 'function' && ventas.cargados) programarVentas();
     }
 
     document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => irA(b.dataset.seccion)));
@@ -534,7 +541,7 @@
         { pregunta: '¿Hay un mínimo de compra?', respuesta: 'Consultanos por WhatsApp: te contamos las condiciones vigentes.' },
         { pregunta: '¿Hacen envíos?', respuesta: 'Sí, enviamos a todo el país. El costo depende del destino y del tamaño del pedido; lo coordinamos por WhatsApp al confirmar.' },
         { pregunta: '¿Cuáles son las formas de pago?', respuesta: 'Aceptamos **efectivo** y **transferencia bancaria**. Consultá por otros medios.' },
-        { pregunta: '¿Cómo hago un pedido?', respuesta: 'Agregá los artículos al carrito, tocá "Enviar pedido" y completá tus datos. Se abre WhatsApp con el detalle listo para enviarnos.' },
+        { pregunta: '¿Cómo hago un pedido?', respuesta: 'Agregá los artículos al carrito, tocá "Finalizar pedido" y completá tus datos. Al confirmar, el pedido queda registrado y nos avisás por WhatsApp con su número.' },
         { pregunta: '¿Los productos tienen garantía?', respuesta: 'Sí, cubrimos fallas de fabricación. Escribinos con el detalle y lo resolvemos.' }
     ];
 
@@ -884,6 +891,664 @@
     });
 
     // ======================================================================
+    // 9b · VENTAS · pedidos en vivo (tiendas/<id>/pedidos) y facturación
+    // No pasan por el borrador: cada acción se escribe al momento.
+    // Cancelar un pedido = borrarlo. Los de más de 90 días se borran solos
+    // al abrir el panel (no hay Cloud Functions en el plan gratuito).
+    // ======================================================================
+    const SECCIONES_VENTAS = ['ventas', 'facturacion'];
+    const ABIERTO = T.ESTADOS_PEDIDO.ABIERTO;
+    const ENTREGADO = T.ESTADOS_PEDIDO.ENTREGADO;
+    const DIA = 864e5;
+    const fm = (n) => T.formatearMonto(Math.round(Number(n) || 0));
+    const reducirMovimiento = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const ventas = {
+        pedidos: {},            // key → pedido
+        cargados: false,
+        error: '',
+        filtro: 'abiertos',
+        busqueda: '',
+        recientes: new Set(),   // llegaron con el panel abierto: se resaltan
+        modal: null,            // { key, m }
+        periodo: '30',
+        desde: '', hasta: ''    // yyyy-mm-dd (período personalizado)
+    };
+
+    // ---- Utilidades ----
+    function hace(ts) {
+        const s = Math.max(0, (Date.now() - ts) / 1000);
+        if (s < 60) return 'recién';
+        if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+        if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
+        const d = Math.floor(s / 86400);
+        return d === 1 ? 'ayer' : `hace ${d} días`;
+    }
+
+    function inicioDia(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
+
+    function etiquetaDia(ts) {
+        const hoy = inicioDia(Date.now());
+        const dia = inicioDia(ts);
+        if (dia === hoy) return 'Hoy';
+        if (dia === hoy - DIA) return 'Ayer';
+        const d = new Date(ts);
+        const txt = d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+        return txt.charAt(0).toUpperCase() + txt.slice(1);
+    }
+
+    function fechaLarga(ts) {
+        return new Date(ts).toLocaleString('es-AR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function aIsoDia(ts) {
+        const d = new Date(ts);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    function deIsoDia(iso) {
+        const [a, m, d] = String(iso || '').split('-').map(Number);
+        return a && m && d ? new Date(a, m - 1, d).getTime() : NaN;
+    }
+
+    function itemsDe(p) { return T.aArray(p && p.items).filter(Boolean); }
+
+    // En la base sólo se guarda lo indispensable. Unidades, subtotal,
+    // descuento y costo total se calculan acá, al recibir cada pedido (sólo en
+    // memoria: nunca se escriben).
+    function completarPedido(p) {
+        if (!p) return p;
+        const items = itemsDe(p);
+        const n = (v) => Number(v) || 0;
+        p.unidades = items.reduce((s, it) => s + n(it.cantidad), 0);
+        p.subtotal = items.reduce((s, it) => s + n(it.precio) * n(it.cantidad), 0);
+        p.costoTotal = Math.round(items.reduce((s, it) => s + n(it.costo) * n(it.cantidad), 0) * 100) / 100;
+        p.descuento = Math.max(0, p.subtotal - n(p.total));
+        return p;
+    }
+    function telefonoVisible(t) { return /^\d+$/.test(String(t || '')) ? T.formatearTelefono(t) : String(t || ''); }
+    function gananciaDe(p) { return (Number(p.total) || 0) - (Number(p.costoTotal) || 0); }
+    function fechaFacturacion(p) { return Number(p.entregado) || Number(p.fecha) || 0; }
+    function listaPedidos() {
+        return Object.keys(ventas.pedidos).map(key => Object.assign({ key }, ventas.pedidos[key]))
+            .sort((a, b) => (b.fecha || 0) - (a.fecha || 0));
+    }
+
+    function animarNumero(el, valor, formato) {
+        const fin = Number(valor) || 0;
+        const ini = Number(el.dataset.valor) || 0;
+        el.dataset.valor = String(fin);
+        if (reducirMovimiento || ini === fin) { el.textContent = formato(fin); return; }
+        const t0 = performance.now(), dur = 650;
+        const paso = (t) => {
+            const k = Math.min(1, (t - t0) / dur);
+            const e = 1 - Math.pow(1 - k, 3);
+            el.textContent = formato(ini + (fin - ini) * e);
+            if (k < 1 && el.dataset.valor === String(fin)) requestAnimationFrame(paso);
+        };
+        requestAnimationFrame(paso);
+    }
+
+    function abrirModal({ titulo, icono, cuerpo, pie, ancha, clase }) {
+        const el = document.createElement('div');
+        el.className = 'modal';
+        el.innerHTML = `
+            <div class="modal-caja${ancha ? ' ancha' : ''}${clase ? ' ' + clase : ''}" role="dialog" aria-modal="true">
+                <div class="modal-cabecera">
+                    <h2>${icono ? `<i class="fas ${icono}"></i>` : ''}<span class="modal-titulo">${titulo}</span></h2>
+                    <button type="button" class="btn btn-icono btn-texto" data-cerrar aria-label="Cerrar"><i class="fas fa-xmark"></i></button>
+                </div>
+                <div class="modal-cuerpo">${cuerpo}</div>
+                <div class="modal-pie">${pie || '<button type="button" class="btn" data-cerrar>Cerrar</button>'}</div>
+            </div>`;
+        document.body.appendChild(el);
+        const alEscape = (e) => { if (e.key === 'Escape') cerrar(); };
+        let cerrado = false;
+        const alCerrar = [];
+        function cerrar() {
+            if (cerrado) return;
+            cerrado = true;
+            document.removeEventListener('keydown', alEscape);
+            el.classList.add('saliendo');
+            setTimeout(() => el.remove(), 180);
+            alCerrar.forEach(f => f());
+        }
+        document.addEventListener('keydown', alEscape);
+        el.addEventListener('mousedown', e => { if (e.target === el) cerrar(); });
+        el.addEventListener('click', e => { if (e.target.closest('[data-cerrar]')) cerrar(); });
+        return { el, cerrar, q: (s) => el.querySelector(s), alCerrar: (f) => alCerrar.push(f) };
+    }
+
+    async function copiarTexto(texto) {
+        try { await navigator.clipboard.writeText(texto); return true; }
+        catch (e) {
+            const ta = document.createElement('textarea');
+            ta.value = texto; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (er) {}
+            ta.remove();
+            return ok;
+        }
+    }
+
+    // ---- Conexión con la base ----
+    function iniciarVentas() {
+        const ref = refTienda.child('pedidos');
+        const limite = T.limitePedidos();
+
+        // Limpieza: borra en una sola escritura los pedidos de más de 90 días
+        ref.orderByChild('fecha').endAt(limite).once('value').then(s => {
+            const borrar = {};
+            s.forEach(c => { borrar[c.key] = null; });
+            if (Object.keys(borrar).length) return ref.update(borrar);
+        }).catch(e => console.warn('No se pudieron limpiar pedidos viejos:', e));
+
+        const q = ref.orderByChild('fecha').startAt(limite);
+        const fallo = (e) => {
+            console.error(e);
+            ventas.error = /permission/i.test(String(e && (e.code || e.message))) ? 'No tenés permiso para ver los pedidos de esta tienda.' : 'No se pudieron cargar los pedidos.';
+            ventas.cargados = true;
+            programarVentas();
+        };
+        q.on('child_added', s => {
+            ventas.pedidos[s.key] = completarPedido(s.val());
+            if (ventas.cargados) {
+                ventas.recientes.add(s.key);
+                const p = s.val() || {};
+                toast(`Nuevo pedido #${p.numero || ''} de ${(p.cliente && p.cliente.nombre) || 'un cliente'}`);
+            }
+            programarVentas();
+        }, fallo);
+        q.on('child_changed', s => { ventas.pedidos[s.key] = completarPedido(s.val()); programarVentas(); }, fallo);
+        q.on('child_removed', s => {
+            delete ventas.pedidos[s.key];
+            if (ventas.modal && ventas.modal.key === s.key) ventas.modal.m.cerrar();
+            programarVentas();
+        }, fallo);
+        q.once('value').then(() => { ventas.cargados = true; programarVentas(); }).catch(fallo);
+
+        // "hace 5 min" se mantiene al día
+        setInterval(() => { if (seccionActual() === 'ventas') pintarPedidos(); }, 60000);
+    }
+
+    function seccionActual() {
+        const s = document.querySelector('.seccion.activa');
+        return s ? s.dataset.seccion : '';
+    }
+
+    let _ventasPendiente = false;
+    function programarVentas() {
+        if (_ventasPendiente) return;
+        _ventasPendiente = true;
+        requestAnimationFrame(() => {
+            _ventasPendiente = false;
+            pintarBadge();
+            pintarPedidos();
+            pintarFacturacion();
+            if (ventas.modal) pintarDetalle();
+        });
+    }
+
+    function pintarBadge() {
+        const n = listaPedidos().filter(p => p.status !== ENTREGADO).length;
+        const b = $('navPedidos');
+        b.hidden = !n;
+        b.textContent = n > 99 ? '99+' : String(n);
+    }
+
+    // ---- Lista de pedidos ----
+    function coincide(p, q) {
+        if (!q) return true;
+        const c = p.cliente || {};
+        return normalizar([p.numero, c.nombre, c.localidad, c.provincia, c.email, c.telefono, String(c.telefono || '').replace(/\D/g, '')].join(' ')).includes(q);
+    }
+
+    function pintarPedidos() {
+        const cont = $('listaPedidos');
+        if (!refTienda && !ventas.cargados) return;
+        if (ventas.error) { cont.innerHTML = `<div class="vacio"><i class="fas fa-lock"></i><p>${esc(ventas.error)}</p></div>`; return; }
+        if (!ventas.cargados) return;
+
+        const todos = listaPedidos();
+        const abiertos = todos.filter(p => p.status !== ENTREGADO);
+        const entregados = todos.filter(p => p.status === ENTREGADO);
+        const cuentas = { abiertos: abiertos.length, entregados: entregados.length, todos: todos.length };
+        document.querySelectorAll('#filtroPedidos [data-cuenta]').forEach(b => { b.textContent = cuentas[b.dataset.cuenta] || ''; });
+
+        // Pulso: lo pendiente de un vistazo
+        const montoAbierto = abiertos.reduce((s, p) => s + (Number(p.total) || 0), 0);
+        const hoy = inicioDia(Date.now());
+        const deHoy = todos.filter(p => (p.fecha || 0) >= hoy).length;
+        $('ventasPulso').innerHTML = `
+            <div class="pulso-item pulso-destacado"><span class="pulso-etiqueta">Por entregar</span><strong>${abiertos.length}</strong><small>${abiertos.length ? fm(montoAbierto) + ' en espera' : 'Nada pendiente'}</small></div>
+            <div class="pulso-item"><span class="pulso-etiqueta">Recibidos hoy</span><strong>${deHoy}</strong><small>${deHoy === 1 ? 'pedido' : 'pedidos'}</small></div>
+            <div class="pulso-item"><span class="pulso-etiqueta">Entregados</span><strong>${entregados.length}</strong><small>en los últimos 90 días</small></div>`;
+
+        const q = normalizar(ventas.busqueda);
+        const base = ventas.filtro === 'abiertos' ? abiertos : ventas.filtro === 'entregados' ? entregados : todos;
+        const lista = base.filter(p => coincide(p, q));
+
+        if (!todos.length) {
+            const url = T.urlTienda(TIENDA);
+            cont.innerHTML = `<div class="vacio vacio-pedidos"><i class="fas fa-receipt"></i><p><strong>Todavía no hay pedidos.</strong><br>Cuando un cliente confirme una compra en tu catálogo, va a aparecer acá al instante.</p><a class="btn" href="${esc(url)}" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i>Abrir mi catálogo</a></div>`;
+            return;
+        }
+        if (!lista.length) {
+            cont.innerHTML = `<div class="vacio"><i class="fas ${q ? 'fa-magnifying-glass' : 'fa-mug-hot'}"></i><p>${q ? 'Ningún pedido coincide con la búsqueda.' : ventas.filtro === 'abiertos' ? '¡Todo entregado! No tenés pedidos pendientes.' : 'Todavía no marcaste pedidos como entregados.'}</p></div>`;
+            return;
+        }
+
+        let html = '', dia = null, i = 0;
+        lista.forEach(p => {
+            const d = inicioDia(p.fecha || 0);
+            if (d !== dia) {
+                dia = d;
+                html += `<h3 class="pedidos-dia">${esc(etiquetaDia(p.fecha || 0))}</h3>`;
+            }
+            const c = p.cliente || {};
+            const items = itemsDe(p);
+            const entregado = p.status === ENTREGADO;
+            const lugar = [c.localidad, c.provincia].filter(Boolean).join(', ');
+            html += `
+                <button type="button" class="pedido-fila${entregado ? ' entregado' : ''}${ventas.recientes.has(p.key) ? ' reciente' : ''}" data-pedido="${esc(p.key)}" style="--i:${Math.min(i++, 12)}">
+                    <span class="pedido-num"><span>#${esc(p.numero || '-----')}</span><time>${esc(hace(p.fecha || 0))}</time></span>
+                    <span class="pedido-cliente"><strong>${esc(c.nombre || 'Sin nombre')}</strong><span>${lugar ? `<i class="fas fa-location-dot"></i>${esc(lugar)}` : ''}</span></span>
+                    <span class="pedido-cifras"><strong>${fm(p.total)}</strong><span>${items.length} ${items.length === 1 ? 'artículo' : 'artículos'} · ${Number(p.unidades) || 0} u.</span></span>
+                    <span class="pill ${entregado ? 'ok' : 'pausa'}">${entregado ? 'Entregado' : 'Abierto'}</span>
+                    <i class="fas fa-chevron-right pedido-flecha" aria-hidden="true"></i>
+                </button>`;
+        });
+        cont.innerHTML = html;
+    }
+
+    document.querySelectorAll('input[name="filtroPedidos"]').forEach(r => r.addEventListener('change', () => {
+        if (r.checked) { ventas.filtro = r.value; pintarPedidos(); }
+    }));
+    let _busquedaTimer = null;
+    $('buscarPedidos').addEventListener('input', e => {
+        clearTimeout(_busquedaTimer);
+        _busquedaTimer = setTimeout(() => { ventas.busqueda = e.target.value; pintarPedidos(); }, 120);
+    });
+    $('listaPedidos').addEventListener('click', e => {
+        const f = e.target.closest('[data-pedido]');
+        if (f) abrirDetalle(f.dataset.pedido);
+    });
+
+    // ---- Detalle de un pedido ----
+    function abrirDetalle(key) {
+        if (!ventas.pedidos[key]) return;
+        ventas.recientes.delete(key);
+        const m = abrirModal({ titulo: '', icono: 'fa-receipt', cuerpo: '', pie: ' ', ancha: true, clase: 'modal-pedido' });
+        ventas.modal = { key, m, confirmando: false };
+        m.alCerrar(() => { if (ventas.modal && ventas.modal.m === m) ventas.modal = null; pintarPedidos(); });
+        m.el.addEventListener('click', e => {
+            const b = e.target.closest('[data-accion-pedido]');
+            if (b) accionPedido(b.dataset.accionPedido, b);
+        });
+        pintarDetalle();
+    }
+
+    function pintarDetalle() {
+        const { key, m, confirmando } = ventas.modal;
+        const p = ventas.pedidos[key];
+        if (!p) return;
+        const c = p.cliente || {};
+        const items = itemsDe(p);
+        const entregado = p.status === ENTREGADO;
+        const ganancia = gananciaDe(p);
+        const margen = p.total > 0 ? Math.round(ganancia / p.total * 100) : 0;
+        const wsp = c.telefono ? T.urlWhatsApp(c.telefono, `Hola ${String(c.nombre || '').split(' ')[0]}, te escribimos de ${guardada.identidad.nombreComercial || 'la tienda'} por tu pedido #${p.numero}.`) : '';
+
+        m.q('.modal-titulo').innerHTML = `Pedido <span class="numero-pedido">#${esc(p.numero || '')}</span> <span class="pill ${entregado ? 'ok' : 'pausa'}">${entregado ? 'Entregado' : 'Abierto'}</span>`;
+
+        const dato = (icono, etiqueta, valor, extra) => valor ? `<div class="dato"><i class="fas ${icono}"></i><span><small>${etiqueta}</small>${extra || esc(valor)}</span></div>` : '';
+        m.q('.modal-cuerpo').innerHTML = `
+            <div class="detalle-linea-tiempo">
+                <span class="hito hecho"><i class="fas fa-inbox"></i><span><strong>Recibido</strong><small>${esc(fechaLarga(p.fecha || 0))}</small></span></span>
+                <span class="hito-union${entregado ? ' hecho' : ''}"></span>
+                <span class="hito${entregado ? ' hecho' : ''}"><i class="fas fa-box-open"></i><span><strong>Entregado</strong><small>${entregado && p.entregado ? esc(fechaLarga(p.entregado)) : 'Pendiente'}</small></span></span>
+            </div>
+
+            <div class="detalle-cliente">
+                <div class="detalle-cliente-cabeza">
+                    <span class="avatar redondo">${esc((String(c.nombre || '?').trim()[0] || '?').toUpperCase())}</span>
+                    <span><strong>${esc(c.nombre || 'Sin nombre')}</strong><small>${esc([c.localidad, c.provincia].filter(Boolean).join(', '))}</small></span>
+                    <span class="detalle-contacto">
+                        ${wsp ? `<a class="btn btn-chico btn-wsp" href="${esc(wsp)}" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i>WhatsApp</a>` : ''}
+                        ${c.email ? `<a class="btn btn-chico" href="mailto:${esc(c.email)}?subject=${encodeURIComponent('Tu pedido #' + p.numero)}"><i class="fas fa-envelope"></i>Email</a>` : ''}
+                    </span>
+                </div>
+                <div class="datos-grid">
+                    ${dato('fa-phone', 'Teléfono', telefonoVisible(c.telefono))}
+                    ${dato('fa-envelope', 'Email', c.email)}
+                    ${dato('fa-truck-fast', 'Entrega', c.entrega)}
+                    ${dato('fa-house', 'Dirección', c.direccion)}
+                    ${dato('fa-note-sticky', 'Notas', c.notas)}
+                </div>
+            </div>
+
+            <div class="tabla-scroll">
+                <table class="tabla-productos tabla-pedido">
+                    <thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Costo</th><th class="num">Subtotal</th></tr></thead>
+                    <tbody>${items.map(it => `
+                        <tr>
+                            <td><span class="nombre" title="${esc(it.nombre)}">${esc(it.nombre)}</span>${it.codigo ? `<span class="cat">Cód. ${esc(it.codigo)}</span>` : ''}</td>
+                            <td class="num">${Number(it.cantidad) || 0}</td>
+                            <td class="num">${fm(it.precio)}</td>
+                            <td class="num tenue">${fm(it.costo)}</td>
+                            <td class="num"><strong>${fm((Number(it.precio) || 0) * (Number(it.cantidad) || 0))}</strong></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="detalle-totales">
+                <div class="totales-lineas">
+                    ${p.descuento ? `<div><span>Subtotal</span><span>${fm(p.subtotal)}</span></div><div class="desc"><span>Descuento</span><span>−${fm(p.descuento)}</span></div>` : ''}
+                    <div class="total"><span>Total</span><span>${fm(p.total)}</span></div>
+                </div>
+                <div class="totales-margen">
+                    <div><span>Costo</span><strong>${fm(p.costoTotal)}</strong></div>
+                    <div class="ganancia"><span>Ganancia</span><strong>${fm(ganancia)}</strong><small>${margen}% del total</small></div>
+                </div>
+            </div>`;
+
+        m.q('.modal-pie').innerHTML = confirmando
+            ? `<div class="confirmar-borrado"><i class="fas fa-triangle-exclamation"></i><span><strong>¿Cancelar y eliminar el pedido #${esc(p.numero || '')}?</strong><small>Se borra para siempre y no cuenta en la facturación.</small></span></div>
+               <button type="button" class="btn" data-accion-pedido="volver">No, volver</button>
+               <button type="button" class="btn btn-peligro-lleno" data-accion-pedido="eliminar"><i class="fas fa-trash"></i>Sí, eliminar</button>`
+            : `<button type="button" class="btn btn-peligro" data-accion-pedido="cancelar"><i class="fas fa-ban"></i>Cancelar pedido</button>
+               <button type="button" class="btn" data-accion-pedido="copiar"><i class="fas fa-copy"></i>Copiar detalle</button>
+               ${entregado
+                ? `<button type="button" class="btn" data-accion-pedido="reabrir"><i class="fas fa-rotate-left"></i>Volver a abierto</button>`
+                : `<button type="button" class="btn btn-primario" data-accion-pedido="entregar"><i class="fas fa-check"></i>Marcar entregado</button>`}`;
+    }
+
+    function textoPedido(p) {
+        const c = p.cliente || {};
+        const l = [`Pedido #${p.numero} · ${fechaLarga(p.fecha || 0)}`, '',
+            `Cliente: ${c.nombre || ''}`, `Teléfono: ${telefonoVisible(c.telefono)}`, `Email: ${c.email || ''}`,
+            `Localidad: ${[c.localidad, c.provincia].filter(Boolean).join(', ')}`];
+        if (c.entrega) l.push(`Entrega: ${c.entrega}`);
+        if (c.direccion) l.push(`Dirección: ${c.direccion}`);
+        if (c.notas) l.push(`Notas: ${c.notas}`);
+        l.push('');
+        itemsDe(p).forEach(it => l.push(`${it.cantidad} x ${it.nombre}${it.codigo ? ' (' + it.codigo + ')' : ''} = ${fm(it.precio * it.cantidad)}`));
+        l.push('');
+        if (p.descuento) l.push(`Descuento: −${fm(p.descuento)}`);
+        l.push(`TOTAL: ${fm(p.total)}`);
+        return l.join('\n');
+    }
+
+    async function accionPedido(accion, boton) {
+        if (!ventas.modal) return;
+        const { key } = ventas.modal;
+        const p = ventas.pedidos[key];
+        if (!p) return;
+        const ref = refTienda.child('pedidos/' + key);
+        const ocupado = (si) => { if (boton) { boton.disabled = si; boton.classList.toggle('ocupado', si); } };
+        try {
+            if (accion === 'cancelar') { ventas.modal.confirmando = true; pintarDetalle(); return; }
+            if (accion === 'volver') { ventas.modal.confirmando = false; pintarDetalle(); return; }
+            if (accion === 'copiar') { toast(await copiarTexto(textoPedido(p)) ? 'Detalle copiado.' : 'No se pudo copiar.', 'info'); return; }
+            ocupado(true);
+            if (accion === 'entregar') {
+                await ref.update({ status: ENTREGADO, entregado: firebase.database.ServerValue.TIMESTAMP });
+                toast(`Pedido #${p.numero} marcado como entregado.`);
+            } else if (accion === 'reabrir') {
+                await ref.update({ status: ABIERTO, entregado: null });
+                toast(`Pedido #${p.numero} volvió a abierto.`);
+            } else if (accion === 'eliminar') {
+                await ref.remove();
+                toast(`Pedido #${p.numero} cancelado y eliminado.`);
+            }
+        } catch (e) {
+            console.error(e);
+            ocupado(false);
+            toast(/permission/i.test(String(e && (e.code || e.message))) ? 'No tenés permiso para modificar este pedido (¿usuario suspendido?).' : 'No se pudo completar la acción. Revisá la conexión.', 'error');
+        }
+    }
+
+    // ---- Facturación ----
+    function rangoPeriodo() {
+        const ahora = Date.now();
+        const limite = T.limitePedidos(ahora);
+        const hoy = inicioDia(ahora);
+        const d = new Date(hoy);
+        let desde, hasta = ahora, texto;
+        switch (ventas.periodo) {
+            case 'hoy': desde = hoy; texto = 'Hoy'; break;
+            case '7': desde = hoy - 6 * DIA; texto = 'Últimos 7 días'; break;
+            case 'mes': desde = new Date(d.getFullYear(), d.getMonth(), 1).getTime(); texto = 'Este mes'; break;
+            case 'mesAnterior':
+                desde = new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime();
+                hasta = new Date(d.getFullYear(), d.getMonth(), 1).getTime() - 1;
+                texto = new Date(desde).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+                texto = texto.charAt(0).toUpperCase() + texto.slice(1);
+                break;
+            case '90': desde = limite; texto = 'Últimos 90 días'; break;
+            case 'personalizado': {
+                const a = deIsoDia(ventas.desde), b = deIsoDia(ventas.hasta);
+                desde = isFinite(a) ? a : hoy - 29 * DIA;
+                hasta = isFinite(b) ? b + DIA - 1 : ahora;
+                if (hasta < desde) [desde, hasta] = [inicioDia(hasta), desde + DIA - 1];
+                texto = 'Período elegido';
+                break;
+            }
+            default: desde = hoy - 29 * DIA; texto = 'Últimos 30 días';
+        }
+        const recortado = desde < limite;
+        desde = Math.max(desde, limite);
+        hasta = Math.min(hasta, ahora);
+        return { desde, hasta, texto, recortado };
+    }
+
+    function resumenEntre(desde, hasta) {
+        const lista = listaPedidos().filter(p => p.status === ENTREGADO && fechaFacturacion(p) >= desde && fechaFacturacion(p) <= hasta);
+        const facturado = lista.reduce((s, p) => s + (Number(p.total) || 0), 0);
+        const costo = lista.reduce((s, p) => s + (Number(p.costoTotal) || 0), 0);
+        return { lista, facturado, costo, ganancia: facturado - costo, cantidad: lista.length };
+    }
+
+    function variacion(actual, previo) {
+        if (!(previo > 0)) return '';
+        const v = Math.round((actual - previo) / previo * 100);
+        if (!isFinite(v)) return '';
+        const clase = v > 0 ? 'sube' : v < 0 ? 'baja' : 'igual';
+        const icono = v > 0 ? 'fa-arrow-trend-up' : v < 0 ? 'fa-arrow-trend-down' : 'fa-equals';
+        return `<span class="variacion ${clase}" title="Comparado con el período anterior de igual duración"><i class="fas ${icono}"></i>${v > 0 ? '+' : ''}${v}%</span>`;
+    }
+
+    function kpi(id, icono, etiqueta, valor, detalle, extra) {
+        return `<div class="kpi kpi-${id}">
+            <span class="kpi-etiqueta"><i class="fas ${icono}"></i>${etiqueta}</span>
+            <strong class="kpi-valor" data-kpi="${id}" data-valor="0">${fm(0)}</strong>
+            <span class="kpi-detalle">${detalle}${extra || ''}</span>
+        </div>`;
+    }
+
+    function pintarFacturacion() {
+        if (!ventas.cargados) return;
+        const r = rangoPeriodo();
+        const actual = resumenEntre(r.desde, r.hasta);
+        const dur = r.hasta - r.desde;
+        const limite = T.limitePedidos();
+        const previo = r.desde - dur - 1 >= limite ? resumenEntre(r.desde - dur - 1, r.desde - 1) : null;
+
+        const fmtDia = (ts) => new Date(ts).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+        $('periodoRango').innerHTML = `<strong>${esc(r.texto)}</strong> · ${fmtDia(r.desde)} al ${fmtDia(r.hasta)}${r.recortado ? ' <span class="pill neutro">limitado a 90 días</span>' : ''}`;
+
+        const margen = actual.facturado > 0 ? Math.round(actual.ganancia / actual.facturado * 100) : 0;
+        const ticket = actual.cantidad ? actual.facturado / actual.cantidad : 0;
+        const cont = $('facturaKpis');
+        if (!cont.dataset.listo) {
+            cont.innerHTML =
+                kpi('facturado', 'fa-cash-register', 'Facturado', 0, '<span data-det="facturado"></span>') +
+                kpi('costo', 'fa-boxes-stacked', 'Costo de mercadería', 0, '<span data-det="costo"></span>') +
+                kpi('ganancia', 'fa-sack-dollar', 'Ganancia', 0, '<span data-det="ganancia"></span>') +
+                kpi('pedidos', 'fa-circle-check', 'Pedidos entregados', 0, '<span data-det="pedidos"></span>');
+            cont.dataset.listo = '1';
+        }
+        const v = (id, val, fmt) => animarNumero(cont.querySelector(`[data-kpi="${id}"]`), val, fmt);
+        v('facturado', actual.facturado, fm);
+        v('costo', actual.costo, fm);
+        v('ganancia', actual.ganancia, fm);
+        v('pedidos', actual.cantidad, n => String(Math.round(n)));
+        cont.querySelector('[data-det="facturado"]').innerHTML = previo ? variacion(actual.facturado, previo.facturado) || 'Sin datos del período anterior' : 'Total cobrado en el período';
+        cont.querySelector('[data-det="costo"]').textContent = actual.facturado > 0 ? `${100 - margen}% de lo facturado` : 'Lo que pagaste por lo vendido';
+        cont.querySelector('[data-det="ganancia"]').innerHTML = `<span class="margen-barra"><span style="width:${Math.max(0, Math.min(100, margen))}%"></span></span>${margen}% de margen${previo ? ' ' + variacion(actual.ganancia, previo.ganancia) : ''}`;
+        cont.querySelector('[data-det="pedidos"]').textContent = actual.cantidad ? `Ticket promedio ${fm(ticket)}` : 'Ninguno en el período';
+
+        pintarGrafico(r, actual.lista);
+        pintarTop(actual.lista);
+        pintarPendiente();
+    }
+
+    function pintarGrafico(r, lista) {
+        const cont = $('graficoFactura');
+        const dias = Math.max(1, Math.round((inicioDia(r.hasta) - inicioDia(r.desde)) / DIA) + 1);
+        const semanal = dias > 31;
+        const paso = semanal ? 7 * DIA : DIA;
+        const cubetas = [];
+        for (let t = inicioDia(r.desde); t <= r.hasta; t += paso) cubetas.push({ desde: t, hasta: Math.min(t + paso - 1, r.hasta), facturado: 0, ganancia: 0, pedidos: 0 });
+        lista.forEach(p => {
+            const f = fechaFacturacion(p);
+            const c = cubetas.find(x => f >= x.desde && f <= x.hasta) || cubetas[cubetas.length - 1];
+            c.facturado += Number(p.total) || 0;
+            c.ganancia += gananciaDe(p);
+            c.pedidos++;
+        });
+        const max = Math.max(...cubetas.map(c => c.facturado), 0);
+        if (!max) {
+            cont.innerHTML = `<div class="grafico-vacio"><i class="fas fa-chart-simple"></i><span>Todavía no hay entregas en este período.</span></div>`;
+            return;
+        }
+        // Escala "redonda" para el eje
+        const mag = Math.pow(10, Math.floor(Math.log10(max)));
+        const tope = [1, 2, 2.5, 5, 10].map(k => k * mag).find(v => v >= max);
+        const fmtCorto = (n) => n >= 1e6 ? '$' + (n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' M' : n >= 1e3 ? '$' + Math.round(n / 1e3).toLocaleString('es-AR') + ' mil' : '$' + Math.round(n);
+        const cadaEtiqueta = Math.ceil(cubetas.length / (window.innerWidth < 700 ? 5 : 10));
+        const fmtX = (c) => semanal
+            ? new Date(c.desde).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+            : (dias <= 7 ? new Date(c.desde).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' }) : new Date(c.desde).getDate() + '/' + (new Date(c.desde).getMonth() + 1));
+        cont.innerHTML = `
+            <div class="grafico-eje">${[1, .5, 0].map(k => `<span>${fmtCorto(tope * k)}</span>`).join('')}</div>
+            <div class="grafico-area">
+                <div class="grafico-guias"><span></span><span></span><span></span></div>
+                <div class="grafico-barras" style="--n:${cubetas.length}">
+                    ${cubetas.map((c, i) => {
+                        const rango = semanal ? `Semana del ${new Date(c.desde).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}` : new Date(c.desde).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+                        const tip = `${rango}\nFacturado: ${fm(c.facturado)}\nGanancia: ${fm(c.ganancia)}\n${c.pedidos} ${c.pedidos === 1 ? 'pedido' : 'pedidos'}`;
+                        return `<div class="g-col" tabindex="0" data-tip="${esc(tip)}" style="--d:${Math.min(i, 40) * 14}ms">
+                            <div class="g-barra" style="height:${(c.facturado / tope * 100).toFixed(2)}%"><div class="g-ganancia" style="height:${c.facturado > 0 ? Math.max(0, Math.min(100, c.ganancia / c.facturado * 100)).toFixed(2) : 0}%"></div></div>
+                            <span class="g-x">${i % cadaEtiqueta === 0 ? esc(fmtX(c)) : ''}</span>
+                        </div>`;
+                    }).join('')}
+                </div>
+                <div class="grafico-tip" hidden></div>
+            </div>`;
+    }
+
+    // Tooltip del gráfico (mouse, teclado y toque)
+    (function () {
+        const g = $('graficoFactura');
+        const mostrar = (col) => {
+            const tip = g.querySelector('.grafico-tip');
+            if (!tip || !col) return;
+            const lineas = col.dataset.tip.split('\n');
+            tip.innerHTML = `<strong>${esc(lineas[0])}</strong>` + lineas.slice(1).map(l => `<span>${esc(l)}</span>`).join('');
+            tip.hidden = false;
+            const area = g.querySelector('.grafico-area').getBoundingClientRect();
+            const c = col.getBoundingClientRect();
+            const x = Math.max(70, Math.min(area.width - 70, c.left - area.left + c.width / 2));
+            tip.style.left = x + 'px';
+            g.querySelectorAll('.g-col.activa').forEach(e => e.classList.remove('activa'));
+            col.classList.add('activa');
+        };
+        const ocultar = () => {
+            const tip = g.querySelector('.grafico-tip');
+            if (tip) tip.hidden = true;
+            g.querySelectorAll('.g-col.activa').forEach(e => e.classList.remove('activa'));
+        };
+        g.addEventListener('mouseover', e => mostrar(e.target.closest('.g-col')));
+        g.addEventListener('focusin', e => mostrar(e.target.closest('.g-col')));
+        g.addEventListener('click', e => mostrar(e.target.closest('.g-col')));
+        g.addEventListener('mouseleave', ocultar);
+        g.addEventListener('focusout', ocultar);
+        window.addEventListener('resize', ocultar);
+    })();
+
+    function pintarTop(lista) {
+        const mapa = new Map();
+        lista.forEach(p => itemsDe(p).forEach(it => {
+            const k = it.codigo || it.nombre;
+            const a = mapa.get(k) || { nombre: it.nombre, codigo: it.codigo, unidades: 0, facturado: 0, ganancia: 0 };
+            const cant = Number(it.cantidad) || 0;
+            a.unidades += cant;
+            a.facturado += (Number(it.precio) || 0) * cant;
+            a.ganancia += ((Number(it.precio) || 0) - (Number(it.costo) || 0)) * cant;
+            mapa.set(k, a);
+        }));
+        const top = [...mapa.values()].sort((a, b) => b.ganancia - a.ganancia).slice(0, 5);
+        const max = Math.max(...top.map(t => t.ganancia), 1);
+        $('facturaTop').innerHTML = top.length
+            ? `<ol class="ranking">${top.map((t, i) => `
+                <li>
+                    <span class="ranking-pos">${i + 1}</span>
+                    <span class="ranking-nombre"><strong title="${esc(t.nombre)}">${esc(t.nombre)}</strong><small>${t.unidades} u. · ${fm(t.facturado)} facturado</small>
+                        <span class="ranking-barra"><span style="width:${Math.max(4, t.ganancia / max * 100).toFixed(1)}%"></span></span></span>
+                    <span class="ranking-valor">${fm(t.ganancia)}</span>
+                </li>`).join('')}</ol>`
+            : '<p class="tarjeta-sub" style="margin:8px 0 0">Sin productos entregados en este período.</p>';
+    }
+
+    function pintarPendiente() {
+        const abiertos = listaPedidos().filter(p => p.status !== ENTREGADO);
+        const monto = abiertos.reduce((s, p) => s + (Number(p.total) || 0), 0);
+        const gan = abiertos.reduce((s, p) => s + gananciaDe(p), 0);
+        $('facturaPendiente').innerHTML = `
+            <h2 class="tarjeta-titulo"><span><i class="fas fa-hourglass-half ic"></i>Pendiente de entrega</span></h2>
+            <p class="tarjeta-sub">Pedidos abiertos. No suman a la facturación hasta que los marques como entregados.</p>
+            <div class="pendiente-cifra">${fm(monto)}</div>
+            <div class="pendiente-detalle"><span><strong>${abiertos.length}</strong> ${abiertos.length === 1 ? 'pedido' : 'pedidos'}</span><span>Ganancia esperada <strong>${fm(gan)}</strong></span></div>
+            ${abiertos.length ? '<button type="button" class="btn btn-chico" data-ir-ventas><i class="fas fa-receipt"></i>Ver pedidos abiertos</button>' : ''}`;
+    }
+
+    $('facturaPendiente').addEventListener('click', e => {
+        if (!e.target.closest('[data-ir-ventas]')) return;
+        const r = document.querySelector('input[name="filtroPedidos"][value="abiertos"]');
+        r.checked = true; ventas.filtro = 'abiertos';
+        irA('ventas');
+    });
+
+    document.querySelectorAll('input[name="periodoFactura"]').forEach(r => r.addEventListener('change', () => {
+        if (!r.checked) return;
+        ventas.periodo = r.value;
+        const pers = r.value === 'personalizado';
+        $('periodoFechas').hidden = !pers;
+        if (pers) {
+            const hoy = aIsoDia(Date.now());
+            const min = aIsoDia(T.limitePedidos() + DIA);
+            ['facturaDesde', 'facturaHasta'].forEach(id => { $(id).min = min; $(id).max = hoy; });
+            if (!ventas.desde) { ventas.desde = aIsoDia(Date.now() - 29 * DIA); ventas.hasta = hoy; }
+            $('facturaDesde').value = ventas.desde;
+            $('facturaHasta').value = ventas.hasta;
+        }
+        try { sessionStorage.setItem('admin-periodo', r.value); } catch (e) {}
+        pintarFacturacion();
+    }));
+    ['facturaDesde', 'facturaHasta'].forEach(id => $(id).addEventListener('change', () => {
+        ventas.desde = $('facturaDesde').value;
+        ventas.hasta = $('facturaHasta').value;
+        pintarFacturacion();
+    }));
+    try {
+        const p = sessionStorage.getItem('admin-periodo');
+        const r = p && document.querySelector(`input[name="periodoFactura"][value="${p}"]`);
+        if (r && p !== 'personalizado') { r.checked = true; ventas.periodo = p; }
+    } catch (e) {}
+
+    // ======================================================================
     // 10 · VALIDACIÓN, GUARDADO Y DESCARTE
     // ======================================================================
     function validar() {
@@ -1043,8 +1708,8 @@
         }
         $('topTiendaId').textContent = TIENDA;
         $('btnVerCatalogo').href = T.urlTienda(TIENDA);
-        let seccion = 'identidad';
-        try { seccion = sessionStorage.getItem('admin-seccion') || 'identidad'; } catch (e) {}
+        let seccion = 'ventas';
+        try { seccion = sessionStorage.getItem('admin-seccion') || 'ventas'; } catch (e) {}
         irA(seccion);
         renderTodo();
         iniciarPreview();
@@ -1053,6 +1718,9 @@
         const apiKey = typeof firebaseConfig !== 'undefined' ? String(firebaseConfig.apiKey || '') : '';
         if (!T.baseDatosUrl() || !apiKey || /REEMPLAZAR/.test(apiKey) || typeof firebase === 'undefined') {
             estado('Sin conexión a la base', 'error');
+            ventas.error = 'Sin conexión a la base: los pedidos no se pueden mostrar.';
+            ventas.cargados = true;
+            programarVentas();
             mostrarBanda('Todavía no está conectado el proyecto de Firebase: completá <code>firebaseConfig</code> (incluida <code>databaseURL</code>) en <code>config.js</code>. Mientras tanto podés explorar el panel y ver los cambios en la vista previa, pero no guardarlos.');
             return;
         }
@@ -1076,6 +1744,7 @@
             renderTodo();
             enviarAssetsPreview();
             enviarConfigPreview();
+            iniciarVentas();
             refTienda.child('estado').once('value').then(s => {
                 const e = s.val();
                 if (e && e.activa === false) {
@@ -1086,6 +1755,9 @@
             console.error(e);
             estado('Error de conexión', 'error');
             mostrarBanda('No se pudo leer la configuración de la tienda: ' + esc(mensajeError(e)));
+            ventas.error = 'No se pudieron cargar los pedidos.';
+            ventas.cargados = true;
+            programarVentas();
         }
     }
 
