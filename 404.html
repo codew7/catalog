@@ -11,6 +11,7 @@
          archivo para cualquier dirección que no existe. Lo usamos para:
            /lucia          → catálogo de la tienda "lucia"  (index.html?t=lucia)
            /lucia/admin    → panel de la tienda "lucia"     (admin.html?tienda=lucia)
+           /lucia/p/<clave> → detalle de un pedido para el cliente (pedido.html?t=lucia&p=<clave>)
          En GitHub Pages sin dominio propio el sitio vive en una subcarpeta
          (codew7.github.io/catalog/), que se detecta sola.
          ====================================================================== -->
@@ -24,12 +25,14 @@
 
             var id = segs[0] || '';
             var extra = segs[1] || '';
-            var reservados = ['admin', 'principal', 'index', 'api', 'img', 'assets', 'www', 'catalogo', 'tienda', 'registro'];
+            var reservados = ['admin', 'principal', 'index', 'api', 'img', 'assets', 'www', 'catalogo', 'tienda', 'registro', 'pedido'];
             if (/^[a-z0-9][a-z0-9-]{1,30}$/.test(id) && reservados.indexOf(id) < 0) {
                 var resto = location.search ? '&' + location.search.slice(1) : '';
                 var destino = extra === 'admin'
                     ? base + 'admin.html?tienda=' + id + resto
-                    : base + '?t=' + id + resto;
+                    : extra === 'p' && segs[2]
+                        ? base + 'pedido.html?t=' + id + '&p=' + encodeURIComponent(segs[2])
+                        : base + '?t=' + id + resto;
                 location.replace(destino + location.hash);
                 return;
             }

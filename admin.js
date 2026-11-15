@@ -1115,6 +1115,12 @@
             s.forEach(c => { borrar[c.key] = null; });
             if (Object.keys(borrar).length) return ref.update(borrar);
         }).catch(e => console.warn('No se pudieron limpiar pedidos viejos:', e));
+        // Y los enlaces de clientes vencidos (tiendas/<id>/publicos)
+        refTienda.child('publicos').orderByChild('vence').endAt(Date.now()).once('value').then(s => {
+            const borrar = {};
+            s.forEach(c => { borrar[c.key] = null; });
+            if (Object.keys(borrar).length) return refTienda.child('publicos').update(borrar);
+        }).catch(() => {});
 
         const q = ref.orderByChild('fecha').startAt(limite);
         const fallo = (e) => {
@@ -1158,7 +1164,8 @@
             pintarBadge();
             pintarPedidos();
             pintarFacturacion();
-            if (ventas.modal) pintarDetalle();
+            // En edición no se repinta: se perderían las cantidades a medio escribir
+            if (ventas.modal && ventas.modal.vista !== 'editar') pintarDetalle();
         });
     }
 
@@ -1248,34 +1255,55 @@
     });
 
     // ---- Detalle de un pedido ----
+    // El modal tiene una vista a la vez:
+    //   detalle · confirmar (borrado) · recot (recotizar) · editar · enviar
     function abrirDetalle(key) {
         if (!ventas.pedidos[key]) return;
         ventas.recientes.delete(key);
         const m = abrirModal({ titulo: '', icono: 'fa-receipt', cuerpo: '', pie: ' ', ancha: true, clase: 'modal-pedido' });
-        ventas.modal = { key, m, confirmando: false, recot: null };
+        ventas.modal = { key, m, vista: 'detalle', recot: null, edicion: null, envio: null };
         m.alCerrar(() => { if (ventas.modal && ventas.modal.m === m) ventas.modal = null; pintarPedidos(); });
         m.el.addEventListener('click', e => {
             const b = e.target.closest('[data-accion-pedido]');
             if (b) accionPedido(b.dataset.accionPedido, b);
         });
+        m.el.addEventListener('input', e => { if (ventas.modal && ventas.modal.vista === 'editar') entradaEdicion(e.target); });
+        pintarDetalle();
+    }
+
+    function irVista(vista) {
+        const vm = ventas.modal;
+        if (!vm) return;
+        vm.vista = vista;
+        if (vista === 'detalle') { vm.recot = null; vm.edicion = null; vm.envio = null; }
         pintarDetalle();
     }
 
     function pintarDetalle() {
-        const { key, m, confirmando, recot } = ventas.modal;
-        const p = ventas.pedidos[key];
+        const vm = ventas.modal;
+        const p = ventas.pedidos[vm.key];
         if (!p) return;
-        const c = p.cliente || {};
-        const items = itemsDe(p);
         const entregado = p.status === ENTREGADO;
-        const ganancia = gananciaDe(p);
-        const margen = p.total > 0 ? Math.round(ganancia / p.total * 100) : 0;
+        vm.m.q('.modal-titulo').innerHTML = `Pedido <span class="numero-pedido">#${esc(p.numero || '')}</span> <span class="pill ${entregado ? 'ok' : 'pausa'}">${entregado ? 'Entregado' : 'Abierto'}</span>${p.enlace ? ' <span class="pill neutro" title="El cliente tiene un enlace con el detalle"><i class="fas fa-link"></i> Compartido</span>' : ''}`;
+
+        const cuerpo = vm.m.q('.modal-cuerpo');
+        if (vm.vista === 'editar') {
+            cuerpo.innerHTML = htmlEdicion(vm.edicion);
+            pintarResultadosEdicion();
+        } else if (vm.vista === 'enviar') {
+            cuerpo.innerHTML = htmlEnvio(p, vm.envio);
+        } else {
+            cuerpo.innerHTML = htmlCliente(p) + (vm.vista === 'recot' ? htmlRecotizacion(p, vm.recot) : htmlItems(p));
+        }
+        vm.m.q('.modal-pie').innerHTML = pieDetalle(p, vm);
+    }
+
+    function htmlCliente(p) {
+        const c = p.cliente || {};
+        const entregado = p.status === ENTREGADO;
         const wsp = c.telefono ? T.urlWhatsApp(c.telefono, `Hola ${String(c.nombre || '').split(' ')[0]}, te escribimos de ${guardada.identidad.nombreComercial || 'la tienda'} por tu pedido #${p.numero}.`) : '';
-
-        m.q('.modal-titulo').innerHTML = `Pedido <span class="numero-pedido">#${esc(p.numero || '')}</span> <span class="pill ${entregado ? 'ok' : 'pausa'}">${entregado ? 'Entregado' : 'Abierto'}</span>`;
-
-        const dato = (icono, etiqueta, valor, extra) => valor ? `<div class="dato"><i class="fas ${icono}"></i><span><small>${etiqueta}</small>${extra || esc(valor)}</span></div>` : '';
-        m.q('.modal-cuerpo').innerHTML = `
+        const dato = (icono, etiqueta, valor) => valor ? `<div class="dato"><i class="fas ${icono}"></i><span><small>${etiqueta}</small>${esc(valor)}</span></div>` : '';
+        return `
             <div class="detalle-linea-tiempo">
                 <span class="hito hecho"><i class="fas fa-inbox"></i><span><strong>Recibido</strong><small>${esc(fechaLarga(p.fecha || 0))}</small></span></span>
                 <span class="hito-union${entregado ? ' hecho' : ''}"></span>
@@ -1299,12 +1327,17 @@
                     ${dato('fa-house', 'Dirección', c.direccion)}
                     ${dato('fa-note-sticky', 'Notas', c.notas)}
                 </div>
-            </div>
+            </div>`;
+    }
 
-            ${recot ? htmlRecotizacion(p, recot) : `<div class="tabla-scroll">
+    function htmlItems(p) {
+        const ganancia = gananciaDe(p);
+        const margen = p.total > 0 ? Math.round(ganancia / p.total * 100) : 0;
+        return `
+            <div class="tabla-scroll">
                 <table class="tabla-productos tabla-pedido">
                     <thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Costo</th><th class="num">Subtotal</th></tr></thead>
-                    <tbody>${items.map(it => `
+                    <tbody>${itemsDe(p).map(it => `
                         <tr>
                             <td><span class="nombre" title="${esc(it.nombre)}">${esc(it.nombre)}</span>${it.codigo ? `<span class="cat">Cód. ${esc(it.codigo)}</span>` : ''}</td>
                             <td class="num">${Number(it.cantidad) || 0}</td>
@@ -1325,25 +1358,67 @@
                     <div><span>Costo</span><strong>${fm(p.costoTotal)}</strong></div>
                     <div class="ganancia"><span>Ganancia</span><strong>${fm(ganancia)}</strong><small>${margen}% del total</small></div>
                 </div>
-            </div>`}`;
+            </div>`;
+    }
 
-        if (recot) {
-            m.q('.modal-pie').innerHTML = recot.cambios
-                ? `<button type="button" class="btn" data-accion-pedido="recot-volver">Volver</button>
+    function pieDetalle(p, vm) {
+        const entregado = p.status === ENTREGADO;
+        if (vm.vista === 'recot') {
+            return vm.recot.cambios
+                ? `<button type="button" class="btn" data-accion-pedido="volver">Volver</button>
                    <button type="button" class="btn btn-primario" data-accion-pedido="recot-aplicar"><i class="fas fa-check"></i>Aplicar precios vigentes</button>`
-                : `<button type="button" class="btn btn-primario" data-accion-pedido="recot-volver">Volver</button>`;
-            return;
+                : `<button type="button" class="btn btn-primario" data-accion-pedido="volver">Volver</button>`;
         }
-        m.q('.modal-pie').innerHTML = confirmando
-            ? `<div class="confirmar-borrado"><i class="fas fa-triangle-exclamation"></i><span><strong>¿Cancelar y eliminar el pedido #${esc(p.numero || '')}?</strong><small>Se borra para siempre y no cuenta en la facturación.</small></span></div>
+        if (vm.vista === 'editar') {
+            return `<button type="button" class="btn" data-accion-pedido="volver">Descartar cambios</button>
+                    <button type="button" class="btn btn-primario" data-accion-pedido="ed-guardar"><i class="fas fa-check"></i>Guardar cambios</button>`;
+        }
+        if (vm.vista === 'enviar') {
+            return `${vm.envio && vm.envio.url ? '<button type="button" class="btn btn-peligro" data-accion-pedido="dejar-compartir"><i class="fas fa-link-slash"></i>Dejar de compartir</button>' : ''}
+                    <button type="button" class="btn btn-primario" data-accion-pedido="volver">Listo</button>`;
+        }
+        if (vm.vista === 'confirmar') {
+            return `<div class="confirmar-borrado"><i class="fas fa-triangle-exclamation"></i><span><strong>¿Cancelar y eliminar el pedido #${esc(p.numero || '')}?</strong><small>Se borra para siempre y no cuenta en la facturación.${p.enlace ? ' El enlace del cliente deja de funcionar.' : ''}</small></span></div>
                <button type="button" class="btn" data-accion-pedido="volver">No, volver</button>
-               <button type="button" class="btn btn-peligro-lleno" data-accion-pedido="eliminar"><i class="fas fa-trash"></i>Sí, eliminar</button>`
-            : `<button type="button" class="btn btn-peligro" data-accion-pedido="cancelar"><i class="fas fa-ban"></i>Cancelar pedido</button>
-               <button type="button" class="btn" data-accion-pedido="copiar"><i class="fas fa-copy"></i>Copiar detalle</button>
-               ${entregado ? '' : '<button type="button" class="btn" data-accion-pedido="recotizar" title="Actualizar cada artículo al precio vigente"><i class="fas fa-arrows-rotate"></i>Recotizar</button>'}
+               <button type="button" class="btn btn-peligro-lleno" data-accion-pedido="eliminar"><i class="fas fa-trash"></i>Sí, eliminar</button>`;
+        }
+        return `<button type="button" class="btn btn-peligro" data-accion-pedido="cancelar"><i class="fas fa-ban"></i>Cancelar pedido</button>
+               ${entregado ? '' : `<button type="button" class="btn" data-accion-pedido="editar" title="Sumar o quitar artículos y cambiar cantidades"><i class="fas fa-pen"></i>Editar</button>
+               <button type="button" class="btn" data-accion-pedido="recotizar" title="Actualizar cada artículo al precio vigente"><i class="fas fa-arrows-rotate"></i>Recotizar</button>`}
+               <button type="button" class="btn" data-accion-pedido="enviar" title="Generar un enlace con el detalle para tu cliente"><i class="fas fa-paper-plane"></i>Enviar al cliente</button>
                ${entregado
                 ? `<button type="button" class="btn" data-accion-pedido="reabrir"><i class="fas fa-rotate-left"></i>Volver a abierto</button>`
                 : `<button type="button" class="btn btn-primario" data-accion-pedido="entregar"><i class="fas fa-check"></i>Marcar entregado</button>`}`;
+    }
+
+    // Totales de una lista de artículos con el descuento GUARDADO de la tienda
+    // (la misma regla que usa el catálogo en resumenCarrito).
+    function totalesDe(items) {
+        const n = (v) => Number(v) || 0;
+        const unidades = items.reduce((s, it) => s + n(it.cantidad), 0);
+        const subtotal = items.reduce((s, it) => s + n(it.precio) * n(it.cantidad), 0);
+        const costo = items.reduce((s, it) => s + n(it.costo) * n(it.cantidad), 0);
+        const d = guardada.pedido.descuento;
+        const aplica = !!d.activo && n(d.pct) > 0 && subtotal >= n(d.montoDesde) && unidades >= n(d.unidadesDesde);
+        const descuento = aplica ? Math.round(subtotal * n(d.pct) / 100) : 0;
+        return { unidades, subtotal, descuento, total: subtotal - descuento, costo };
+    }
+
+    // Sólo los campos que acepta la base (sin calculados ni marcas internas)
+    function itemsParaGuardar(items) {
+        return items.map(it => {
+            const x = { nombre: String(it.nombre || '').slice(0, 160), cantidad: Number(it.cantidad) || 0, precio: Number(it.precio) || 0 };
+            if (Number(it.costo) > 0) x.costo = Math.round(Number(it.costo) * 100) / 100;
+            if (it.codigo) x.codigo = String(it.codigo).slice(0, 60);
+            return x;
+        });
+    }
+
+    // Precio y costo vigentes de una fila de la hoja (null si no tiene costo)
+    function vigenteDeFila(f) {
+        const costo = T.costoDeFila(f, reglaCosto);
+        const precio = T.calcularPrecio(costo, guardada.precios);
+        return precio === null ? null : { precio, costo: Math.round(costo * 100) / 100 };
     }
 
     // ---- Recotizar ----
@@ -1364,24 +1439,17 @@
         const filas = itemsDe(p).map(it => {
             const cod = String(it.codigo || '').trim().toLowerCase();
             const f = cod ? porCodigo.get(cod) : porNombre.get(String(it.nombre || '').trim().toLowerCase());
-            const costo = f ? T.costoDeFila(f, reglaCosto) : NaN;
-            const precio = f ? T.calcularPrecio(costo, guardada.precios) : null;
-            if (precio === null) { sinDatos++; return { it, nuevo: it, estado: 'sinDatos' }; }
-            const nuevo = Object.assign({}, it, { precio, costo: Math.round(costo * 100) / 100 });
+            const v = f ? vigenteDeFila(f) : null;
+            if (!v) { sinDatos++; return { it, nuevo: it, estado: 'sinDatos' }; }
+            const nuevo = Object.assign({}, it, v);
             const cambio = n(nuevo.precio) !== n(it.precio) || n(nuevo.costo) !== n(it.costo);
             if (cambio) cambios++;
             return { it, nuevo, estado: cambio ? 'cambia' : 'igual' };
         });
         const items = filas.map(x => x.nuevo);
-        const unidades = items.reduce((s, it) => s + n(it.cantidad), 0);
-        const subtotal = items.reduce((s, it) => s + n(it.precio) * n(it.cantidad), 0);
-        // Mismo descuento que el catálogo (resumenCarrito en catalogo.js)
-        const d = guardada.pedido.descuento;
-        const aplica = !!d.activo && n(d.pct) > 0 && subtotal >= n(d.montoDesde) && unidades >= n(d.unidadesDesde);
-        const descuento = aplica ? Math.round(subtotal * n(d.pct) / 100) : 0;
-        const total = subtotal - descuento;
-        if (total !== n(p.total)) cambios = cambios || 1;
-        return { filas, items, subtotal, descuento, total, cambios, sinDatos };
+        const t = totalesDe(items);
+        if (t.total !== n(p.total)) cambios = cambios || 1;
+        return { filas, items, subtotal: t.subtotal, descuento: t.descuento, total: t.total, cambios, sinDatos };
     }
 
     function htmlRecotizacion(p, r) {
@@ -1414,66 +1482,302 @@
             </div>`;
     }
 
-    function textoPedido(p) {
+    // ---- Editar ----
+    // Se trabaja sobre una copia; nada se escribe hasta "Guardar cambios".
+    // Los artículos que ya estaban conservan su precio; los que se suman
+    // toman el vigente (hoja + variable de costos + escalas guardadas).
+    function htmlEdicion(ed) {
+        const filas = ed.items.length ? ed.items.map((it, i) => `
+            <tr>
+                <td><span class="nombre" title="${esc(it.nombre)}">${esc(it.nombre)}</span><span class="cat">${it.codigo ? 'Cód. ' + esc(it.codigo) : ''}${it._nuevo ? (it.codigo ? ' · ' : '') + '<strong style="color:var(--verde-700)">Nuevo</strong>' : ''}</span></td>
+                <td class="num"><input type="number" class="control cant-edicion" data-idx="${i}" min="1" max="10000" step="1" inputmode="numeric" value="${Number(it.cantidad) || 1}" aria-label="Cantidad de ${esc(it.nombre)}"></td>
+                <td class="num">${fm(it.precio)}</td>
+                <td class="num" data-sub="${i}"><strong>${fm((Number(it.precio) || 0) * (Number(it.cantidad) || 0))}</strong></td>
+                <td class="num"><button type="button" class="btn btn-chico btn-icono btn-quitar" data-accion-pedido="ed-quitar" data-idx="${i}" title="Quitar del pedido" aria-label="Quitar ${esc(it.nombre)}"><i class="fas fa-trash-can"></i></button></td>
+            </tr>`).join('')
+            : '<tr><td colspan="5"><div class="lista-vacia">El pedido quedó sin artículos. Sumá al menos uno para poder guardarlo.</div></td></tr>';
+        return `
+            <p class="tarjeta-sub" style="margin:0 0 12px">Cambiá cantidades, quitá artículos o sumá otros de tu lista. Los que agregues toman el precio vigente; los que ya estaban mantienen el suyo. Nada se guarda hasta que toques <strong>Guardar cambios</strong>.</p>
+            <div class="tabla-scroll">
+                <table class="tabla-productos tabla-pedido tabla-edicion">
+                    <thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th><th></th></tr></thead>
+                    <tbody>${filas}</tbody>
+                </table>
+            </div>
+            <div class="detalle-totales" id="edTotales">${htmlTotalesEdicion(ed)}</div>
+            <div class="agregar-articulos">
+                <label for="edBuscar" class="etiqueta"><i class="fas fa-plus"></i> Agregar artículos</label>
+                <div class="buscador-edicion"><i class="fas fa-magnifying-glass"></i><input type="search" class="control" id="edBuscar" placeholder="Buscar por nombre o código…" value="${esc(ed.q)}" autocomplete="off"></div>
+                <div id="edResultados"></div>
+            </div>`;
+    }
+
+    function htmlTotalesEdicion(ed) {
+        const t = totalesDe(ed.items);
+        const ganancia = t.total - t.costo;
+        const cambio = Math.round(t.total) !== Math.round(ed.totalOriginal);
+        return `
+            <div class="totales-lineas">
+                ${t.descuento ? `<div><span>Subtotal</span><span>${fm(t.subtotal)}</span></div><div class="desc"><span>Descuento</span><span>−${fm(t.descuento)}</span></div>` : ''}
+                <div class="total"><span>Total</span><span>${cambio ? `<span class="tenue" style="text-decoration:line-through;font-weight:600;font-size:.8em">${fm(ed.totalOriginal)}</span> ` : ''}${fm(t.total)}</span></div>
+            </div>
+            <div class="totales-margen">
+                <div><span>Costo</span><strong>${fm(t.costo)}</strong></div>
+                <div class="ganancia"><span>Ganancia</span><strong>${fm(ganancia)}</strong><small>${t.unidades} ${t.unidades === 1 ? 'unidad' : 'unidades'}</small></div>
+            </div>`;
+    }
+
+    let _edTimer = null;
+    function entradaEdicion(el) {
+        const ed = ventas.modal.edicion;
+        if (el.classList.contains('cant-edicion')) {
+            const i = Number(el.dataset.idx);
+            const v = Math.floor(Number(el.value));
+            const valida = isFinite(v) && v >= 1 && v <= 10000;
+            el.classList.toggle('invalido', !valida);
+            if (!valida || !ed.items[i]) return;
+            ed.items[i].cantidad = v;
+            const celda = ventas.modal.m.q(`[data-sub="${i}"]`);
+            if (celda) celda.innerHTML = `<strong>${fm((Number(ed.items[i].precio) || 0) * v)}</strong>`;
+            ventas.modal.m.q('#edTotales').innerHTML = htmlTotalesEdicion(ed);
+        } else if (el.id === 'edBuscar') {
+            ed.q = el.value;
+            clearTimeout(_edTimer);
+            _edTimer = setTimeout(pintarResultadosEdicion, 150);
+        }
+    }
+
+    function pintarResultadosEdicion() {
+        const vm = ventas.modal;
+        if (!vm || vm.vista !== 'editar') return;
+        const cont = vm.m.q('#edResultados');
+        const q = normalizar(vm.edicion.q);
+        if (!q) { cont.innerHTML = ''; return; }
+        if (!filasHoja) { cont.innerHTML = '<div class="cargando-linea"><span class="spinner"></span>Cargando productos…</div>'; return; }
+        const enPedido = new Map(vm.edicion.items.map(it => [claveItem(it), it]));
+        const res = [];
+        for (let i = 0; i < filasHoja.length && res.length < 8; i++) {
+            const f = filasHoja[i];
+            if (!(normalizar(f[3]).includes(q) || normalizar(f[2]).includes(q))) continue;
+            const v = vigenteDeFila(f);
+            if (v) res.push({ i, f, v });
+        }
+        cont.innerHTML = res.length ? `<div class="resultados-edicion">${res.map(({ i, f, v }) => {
+            const ya = enPedido.get(claveItem({ codigo: f[2], nombre: f[3] }));
+            return `<div class="resultado-edicion">
+                <span class="info"><strong title="${esc(f[3])}">${esc(f[3])}</strong><small>${esc(f[0] || '')}${f[2] ? ' · Cód. ' + esc(f[2]) : ''}${ya ? ' · <b>Ya en el pedido (' + (Number(ya.cantidad) || 0) + ')</b>' : ''}</small></span>
+                <span class="precio">${fm(v.precio)}</span>
+                <button type="button" class="btn btn-chico${ya ? '' : ' btn-primario'}" data-accion-pedido="ed-agregar" data-fila="${i}"><i class="fas fa-plus"></i>${ya ? 'Sumar 1' : 'Agregar'}</button>
+            </div>`;
+        }).join('')}</div>` : '<div class="lista-vacia">Sin resultados con precio en tu lista.</div>';
+    }
+
+    function claveItem(it) {
+        const cod = String(it.codigo || '').trim().toLowerCase();
+        return cod ? 'c:' + cod : 'n:' + String(it.nombre || '').trim().toLowerCase();
+    }
+
+    function repintarEdicion(enfocarBusqueda) {
+        pintarDetalle();
+        if (enfocarBusqueda) {
+            const b = ventas.modal.m.q('#edBuscar');
+            if (b) { b.focus(); b.setSelectionRange(b.value.length, b.value.length); }
+        }
+    }
+
+    // ---- Enviar al cliente ----
+    // Copia pública y de sólo lectura en tiendas/<id>/publicos/<clave>: sólo
+    // lo que ve el comprador (sin costos, ganancias, teléfono, email, DNI ni
+    // notas). La clave lleva el número del pedido y 10 caracteres al azar:
+    // no se puede adivinar ni listar. Vence a los DIAS_ENLACE días; volver a
+    // enviarlo lo renueva. Si el pedido cambia, la copia se actualiza sola.
+    const DIAS_ENLACE = 30;
+    const ALFABETO_CLAVE = 'abcdefghijkmnpqrstuvwxyz23456789';
+
+    function claveNueva(numero) {
+        const n = new Uint8Array(10);
+        crypto.getRandomValues(n);
+        return String(numero || '').toLowerCase() + '-' + Array.from(n, b => ALFABETO_CLAVE[b % ALFABETO_CLAVE.length]).join('');
+    }
+    function urlPublica(clave) { return T.urlTienda(TIENDA) + '/p/' + clave; }
+
+    function copiaPublica(p, vence) {
         const c = p.cliente || {};
-        const l = [`Pedido #${p.numero} · ${fechaLarga(p.fecha || 0)}`, '',
-            `Cliente: ${c.nombre || ''}`, `Teléfono: ${telefonoVisible(c.telefono)}`, `Email: ${c.email || ''}`, ...(c.dni ? [`DNI: ${c.dni}`] : []),
-            `Localidad: ${[c.localidad, c.provincia].filter(Boolean).join(', ')}`];
-        if (c.entrega) l.push(`Entrega: ${c.entrega}`);
-        if (c.direccion) l.push(`Dirección: ${c.direccion}`);
-        if (c.notas) l.push(`Notas: ${c.notas}`);
-        l.push('');
-        itemsDe(p).forEach(it => l.push(`${it.cantidad} x ${it.nombre}${it.codigo ? ' (' + it.codigo + ')' : ''} = ${fm(it.precio * it.cantidad)}`));
-        l.push('');
-        if (p.descuento) l.push(`Descuento: −${fm(p.descuento)}`);
-        l.push(`TOTAL: ${fm(p.total)}`);
-        return l.join('\n');
+        const cliente = {};
+        ['nombre', 'localidad', 'provincia', 'entrega', 'direccion'].forEach(k => { if (c[k]) cliente[k] = String(c[k]); });
+        const items = itemsDe(p).map(it => {
+            const x = { nombre: String(it.nombre || '').slice(0, 160), cantidad: Number(it.cantidad) || 0, precio: Number(it.precio) || 0 };
+            if (it.codigo) x.codigo = String(it.codigo).slice(0, 60);
+            return x;
+        });
+        const subtotal = items.reduce((s, it) => s + it.precio * it.cantidad, 0);
+        const total = Number(p.total) || 0;
+        const copia = { numero: p.numero, fecha: Number(p.fecha) || Date.now(), status: p.status === ENTREGADO ? ENTREGADO : ABIERTO, items, total, vence };
+        if (subtotal - total > 0) { copia.subtotal = subtotal; copia.descuento = subtotal - total; }
+        if (Object.keys(cliente).length) copia.cliente = cliente;
+        return copia;
+    }
+
+    async function compartirPedido(key) {
+        const p = ventas.pedidos[key];
+        const clave = p.enlace || claveNueva(p.numero);
+        const vence = Date.now() + DIAS_ENLACE * DIA;
+        await refTienda.update({ [`publicos/${clave}`]: copiaPublica(p, vence), [`pedidos/${key}/enlace`]: clave });
+        return { clave, url: urlPublica(clave), vence };
+    }
+
+    // Después de cambiar un pedido compartido: la copia toma los cambios y
+    // conserva su vencimiento. Si ya venció o se dejó de compartir, no se toca.
+    async function refrescarCopiaPublica(key, cambios) {
+        const actual = ventas.pedidos[key];
+        if (!actual || !actual.enlace) return;
+        try {
+            const vence = await refTienda.child(`publicos/${actual.enlace}/vence`).once('value').then(s => s.val());
+            if (!vence || vence < Date.now()) return;
+            const p = completarPedido(Object.assign({}, actual, cambios));
+            await refTienda.child(`publicos/${actual.enlace}`).set(copiaPublica(p, vence));
+        } catch (e) { console.warn('No se pudo actualizar el enlace del cliente:', e); }
+    }
+
+    function htmlEnvio(p, envio) {
+        if (!envio || envio.cargando) return '<div class="cargando-linea" style="padding:40px 0"><span class="spinner"></span>Generando el enlace…</div>';
+        const c = p.cliente || {};
+        const tienda = guardada.identidad.nombreComercial || 'la tienda';
+        const primer = String(c.nombre || '').trim().split(' ')[0];
+        const texto = `Hola${primer ? ' ' + primer : ''}! Te compartimos el detalle de tu pedido #${p.numero} en ${tienda}:\n${envio.url}`;
+        const venceTxt = new Date(envio.vence).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
+        return `
+            <div class="envio-pedido">
+                <div class="envio-icono"><i class="fas fa-paper-plane"></i></div>
+                <h3>Detalle para ${esc(c.nombre || 'tu cliente')}</h3>
+                <p>Un enlace con el detalle del pedido y el logo de tu tienda. Tu cliente ve los artículos, las cantidades, los precios y el total: <strong>no ve costos ni ganancias y no puede modificar nada</strong>. Si después cambiás el pedido, el enlace se actualiza solo.</p>
+                <div class="envio-enlace">
+                    <input type="text" class="control" readonly value="${esc(envio.url)}" aria-label="Enlace del pedido" onfocus="this.select()">
+                    <button type="button" class="btn btn-primario" data-accion-pedido="copiar-enlace"><i class="fas fa-copy"></i>Copiar</button>
+                </div>
+                <small class="ayuda"><i class="fas fa-clock"></i> Vence el ${esc(venceTxt)} (${DIAS_ENLACE} días). Volver a enviarlo lo renueva.</small>
+                <div class="envio-canales">
+                    ${c.telefono ? `<a class="btn btn-wsp" href="${esc(T.urlWhatsApp(c.telefono, texto))}" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i>Enviar por WhatsApp</a>` : ''}
+                    ${c.email ? `<a class="btn" href="mailto:${esc(c.email)}?subject=${encodeURIComponent('Detalle de tu pedido #' + p.numero + ' · ' + tienda)}&body=${encodeURIComponent(texto)}"><i class="fas fa-envelope"></i>Enviar por email</a>` : ''}
+                    <a class="btn" href="${esc(envio.url)}" target="_blank" rel="noopener"><i class="fas fa-eye"></i>Ver como cliente</a>
+                </div>
+            </div>`;
     }
 
     async function accionPedido(accion, boton) {
-        if (!ventas.modal) return;
-        const { key } = ventas.modal;
+        const vm = ventas.modal;
+        if (!vm) return;
+        const { key } = vm;
         const p = ventas.pedidos[key];
         if (!p) return;
         const ref = refTienda.child('pedidos/' + key);
         const ocupado = (si) => { if (boton) { boton.disabled = si; boton.classList.toggle('ocupado', si); } };
+        const sigueAbierto = () => ventas.modal && ventas.modal.key === key;
         try {
-            if (accion === 'cancelar') { ventas.modal.confirmando = true; pintarDetalle(); return; }
-            if (accion === 'volver') { ventas.modal.confirmando = false; pintarDetalle(); return; }
-            if (accion === 'copiar') { toast(await copiarTexto(textoPedido(p)) ? 'Detalle copiado.' : 'No se pudo copiar.', 'info'); return; }
-            if (accion === 'recot-volver') { ventas.modal.recot = null; pintarDetalle(); return; }
+            // ---- Navegación entre vistas ----
+            if (accion === 'cancelar') { irVista('confirmar'); return; }
+            if (accion === 'volver') { irVista('detalle'); return; }
+            if (accion === 'editar') {
+                vm.edicion = { items: itemsDe(p).map(it => Object.assign({}, it)), q: '', totalOriginal: Number(p.total) || 0 };
+                irVista('editar');
+                if (!filasHoja) cargarHoja().then(pintarResultadosEdicion);
+                return;
+            }
+
+            // ---- Edición (en memoria) ----
+            if (accion === 'ed-quitar') {
+                vm.edicion.items.splice(Number(boton.dataset.idx), 1);
+                repintarEdicion(false);
+                return;
+            }
+            if (accion === 'ed-agregar') {
+                const f = filasHoja && filasHoja[Number(boton.dataset.fila)];
+                const v = f && vigenteDeFila(f);
+                if (!v) return;
+                const nuevo = { nombre: String(f[3] || '').trim(), codigo: String(f[2] || '').trim(), cantidad: 1, precio: v.precio, costo: v.costo, _nuevo: true };
+                const ya = vm.edicion.items.find(it => claveItem(it) === claveItem(nuevo));
+                if (ya) ya.cantidad = Math.min(10000, (Number(ya.cantidad) || 0) + 1);
+                else {
+                    if (vm.edicion.items.length >= 100) { toast('Un pedido puede tener hasta 100 artículos distintos.', 'error'); return; }
+                    if (!nuevo.codigo) delete nuevo.codigo;
+                    vm.edicion.items.push(nuevo);
+                }
+                repintarEdicion(true);
+                return;
+            }
+            if (accion === 'ed-guardar') {
+                const items = vm.edicion.items;
+                if (!items.length) { toast('El pedido tiene que tener al menos un artículo. Si no lo vas a entregar, usá "Cancelar pedido".', 'error'); return; }
+                if (vm.m.q('.cant-edicion.invalido')) { toast('Revisá las cantidades: tienen que ser números enteros entre 1 y 10.000.', 'error'); return; }
+                ocupado(true);
+                const guardar = itemsParaGuardar(items);
+                const total = totalesDe(guardar).total;
+                await ref.update({ items: guardar, total });
+                await refrescarCopiaPublica(key, { items: guardar, total });
+                if (sigueAbierto()) irVista('detalle');
+                toast(`Pedido #${p.numero} actualizado: total ${fm(total)}.`);
+                return;
+            }
+
+            // ---- Enviar al cliente ----
+            if (accion === 'enviar') {
+                vm.envio = { cargando: true };
+                irVista('enviar');
+                try {
+                    const r = await compartirPedido(key);
+                    if (sigueAbierto() && ventas.modal.vista === 'enviar') { ventas.modal.envio = r; pintarDetalle(); }
+                } catch (e) {
+                    if (sigueAbierto()) irVista('detalle');
+                    throw e;
+                }
+                return;
+            }
+            if (accion === 'copiar-enlace') {
+                toast(vm.envio && await copiarTexto(vm.envio.url) ? 'Enlace copiado.' : 'No se pudo copiar.', 'info');
+                return;
+            }
+            if (accion === 'dejar-compartir') {
+                ocupado(true);
+                await refTienda.update({ [`publicos/${p.enlace || vm.envio.clave}`]: null, [`pedidos/${key}/enlace`]: null });
+                if (sigueAbierto()) irVista('detalle');
+                toast('El enlace dejó de funcionar.');
+                return;
+            }
+
+            // ---- Recotizar ----
             ocupado(true);
             if (accion === 'recotizar') {
                 if (!filasHoja) await cargarHoja();
                 if (!filasHoja) { ocupado(false); toast('No se pudo leer la lista de productos. Probá de nuevo en un momento.', 'error'); return; }
-                if (!ventas.modal || ventas.modal.key !== key) return;
-                ventas.modal.recot = calcularRecotizacion(p);
-                pintarDetalle();
+                if (!sigueAbierto()) return;
+                vm.recot = calcularRecotizacion(p);
+                irVista('recot');
                 return;
             }
             if (accion === 'recot-aplicar') {
-                const r = ventas.modal.recot;
+                const r = vm.recot;
                 if (!r) return;
-                // Sólo se guardan los campos que acepta la base (sin campos calculados)
-                const items = r.items.map(it => {
-                    const x = { nombre: it.nombre, cantidad: Number(it.cantidad) || 0, precio: Number(it.precio) || 0 };
-                    if (Number(it.costo) > 0) x.costo = Number(it.costo);
-                    if (it.codigo) x.codigo = it.codigo;
-                    return x;
-                });
+                const items = itemsParaGuardar(r.items);
                 await ref.update({ items, total: r.total });
-                if (ventas.modal && ventas.modal.key === key) { ventas.modal.recot = null; pintarDetalle(); }
+                await refrescarCopiaPublica(key, { items, total: r.total });
+                if (sigueAbierto()) irVista('detalle');
                 toast(`Pedido #${p.numero} recotizado: total ${fm(r.total)}.`);
                 return;
             }
+
+            // ---- Estado ----
             if (accion === 'entregar') {
                 await ref.update({ status: ENTREGADO, entregado: firebase.database.ServerValue.TIMESTAMP });
+                await refrescarCopiaPublica(key, { status: ENTREGADO });
                 toast(`Pedido #${p.numero} marcado como entregado.`);
             } else if (accion === 'reabrir') {
                 await ref.update({ status: ABIERTO, entregado: null });
+                await refrescarCopiaPublica(key, { status: ABIERTO });
                 toast(`Pedido #${p.numero} volvió a abierto.`);
             } else if (accion === 'eliminar') {
-                await ref.remove();
+                const borrar = { [`pedidos/${key}`]: null };
+                if (p.enlace) borrar[`publicos/${p.enlace}`] = null;
+                await refTienda.update(borrar);
                 toast(`Pedido #${p.numero} cancelado y eliminado.`);
             }
         } catch (e) {

@@ -6,6 +6,7 @@ Catálogo online. Los pedidos quedan registrados en la base (`tiendas/<id>/pedid
 https://catalog.dev.ar/<tienda>         → catálogo
 https://catalog.dev.ar/<tienda>/admin   → panel de la tienda
 https://catalog.dev.ar/registro         → formulario para pedir una tienda nueva
+https://catalog.dev.ar/<tienda>/p/<clave> → detalle de un pedido para el cliente (sólo lectura)
 ```
 
 ## Publicación
@@ -22,6 +23,7 @@ No hay que editar nada al crear una tienda nueva. `404.html` resuelve las direcc
 |---|---|
 | `index.html` / `catalogo.js` | Catálogo (uno solo para todas las tiendas). |
 | `404.html` | Direcciones limpias por tienda. |
+| `pedido.html` / `pedido.js` | Detalle de un pedido para el comprador, con el logo y los colores de la tienda. Lee la copia pública `tiendas/<id>/publicos/<clave>` que genera el panel con *Enviar al cliente* (sin costos ni datos de contacto). Vence a los 30 días. |
 | `registro.html` / `registro.js` | Formulario público para pedir una tienda. Crea la cuenta de la persona y deja la solicitud en `registros/<uid>`; la tienda recién existe cuando el administrador la aprueba en la gestión de tiendas. |
 | `admin.html` / `admin.js` | Panel de cada tienda: ventas (pedidos y facturación) y configuración con vista previa en vivo. |
 | `localidades-ar.json` | Provincias y localidades de Argentina para el checkout. |
