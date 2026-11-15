@@ -32,6 +32,7 @@
     let guardando = false;
     let puedeGuardar = false;
     let filasHoja = null;
+    let reglaCosto = T.normalizarReglaCosto(null);   // de qué columna sale el costo (tiendas/<id>/costo)
     let previewLista = false;
 
     // ======================================================================
@@ -818,15 +819,15 @@
     function pintarTablaProductos() {
         if (!filasHoja) return;
         const q = normalizar($('buscarProducto').value);
-        const conCosto = filasHoja.filter(f => T.calcularPrecio(f[7], borrador.precios) !== null);
+        const conCosto = filasHoja.filter(f => T.calcularPrecio(T.costoDeFila(f, reglaCosto), borrador.precios) !== null);
         $('cuentaProductos').textContent = `${conCosto.length} con costo · ${filasHoja.length - conCosto.length} sin costo`;
         const lista = (q ? filasHoja.filter(f => normalizar(f[3]).includes(q) || normalizar(f[2]).includes(q)) : conCosto).slice(0, 15);
         if (!lista.length) { $('tablaProductos').innerHTML = '<div class="lista-vacia">Sin resultados.</div>'; return; }
         $('tablaProductos').innerHTML = `
             <table class="tabla-productos">
-                <thead><tr><th>Producto</th><th class="num">Costo (H)</th><th class="num">Escala</th><th class="num">Precio final</th></tr></thead>
+                <thead><tr><th>Producto</th><th class="num">Costo</th><th class="num">Escala</th><th class="num">Precio final</th></tr></thead>
                 <tbody>${lista.map(f => {
-                    const d = T.detallePrecio(f[7], borrador.precios);
+                    const d = T.detallePrecio(T.costoDeFila(f, reglaCosto), borrador.precios);
                     return `<tr>
                         <td class="nombre" title="${esc(f[3])}">${esc(f[3])}<span class="cat">${esc(f[0] || '')}${f[2] ? ' · ' + esc(f[2]) : ''}</span></td>
                         <td class="num">${d ? T.formatearMonto(d.costo) : '—'}</td>
@@ -1745,6 +1746,10 @@
             enviarAssetsPreview();
             enviarConfigPreview();
             iniciarVentas();
+            refTienda.child('costo').once('value').then(s => {
+                reglaCosto = T.normalizarReglaCosto(s.val());
+                pintarTablaProductos();
+            }).catch(() => {});
             refTienda.child('estado').once('value').then(s => {
                 const e = s.val();
                 if (e && e.activa === false) {

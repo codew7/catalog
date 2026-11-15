@@ -2,8 +2,9 @@
    CATALOGO.JS · catálogo público de marca blanca
    --------------------------------------------------------------------------
    Parte de catalogoRAW.js (catálogo mayorista) con estos cambios:
-   · Precio = costo de la columna H ajustado por las escalas de la tienda
-     (TiendaCore.calcularPrecio), no las columnas G/N.
+   · Precio = costo (columna E por defecto; H o H + % si la gestión de
+     tiendas lo indica en tiendas/<id>/costo) ajustado por las escalas de la
+     tienda (TiendaCore.calcularPrecio), no las columnas G/N.
    · Sin SDK de Firebase: el pedido se registra por REST en
      tiendas/<id>/pedidos (status ABIERTO, con el costo de cada artículo) y
      después el cliente avisa por WhatsApp con un mensaje corto.
@@ -23,7 +24,9 @@
     const ASSETS = {};          // id → dataUrl (imágenes ya resueltas)
 
     // Columnas de la hoja (índices base 0)
-    const COL = { CATEGORIA: 0, IMAGENES: 1, CODIGO: 2, NOMBRE: 3, COSTO: 7, STOCK: 10, FECHA: 12, DESCRIPCION: 14, MEDIDAS: 15 };
+    // El costo no está acá: sale de T.costoDeFila según la regla de la tienda.
+    const COL = { CATEGORIA: 0, IMAGENES: 1, CODIGO: 2, NOMBRE: 3, STOCK: 10, FECHA: 12, DESCRIPCION: 14, MEDIDAS: 15 };
+    let REGLA_COSTO = T.normalizarReglaCosto(null);
 
     // Claves por tienda: dos tiendas en el mismo navegador no se pisan el
     // carrito. La vista previa del panel usa las suyas para no ensuciar el
@@ -341,7 +344,8 @@
             const categoria = String(f[COL.CATEGORIA] || '').trim();
             if (categoria && ocultas.has(categoria.toLowerCase())) return;
 
-            const precio = T.calcularPrecio(f[COL.COSTO], CFG.precios);
+            const costo = T.costoDeFila(f, REGLA_COSTO);
+            const precio = T.calcularPrecio(costo, CFG.precios);
             if (precio === null && !consultar) return;
 
             const codigo = String(f[COL.CODIGO] || '').trim();
@@ -349,7 +353,7 @@
             lista.push({
                 clave: codigo || nombre,
                 categoria, codigo, nombre, precio,
-                costo: T.parsearMonto(f[COL.COSTO]),
+                costo,
                 imagenes: imagenes.filter(u => /^https?:\/\//i.test(u) || /\.(jpe?g|png|gif|webp)$/i.test(u)),
                 stock: leerStock(f[COL.STOCK]),
                 fecha: parsearFecha(f[COL.FECHA]),
@@ -1566,7 +1570,8 @@
     $('ckNombre').addEventListener('input', () => mostrarError('ckNombreError', ''));
     $('ckDireccion').addEventListener('input', () => mostrarError('ckDireccionError', ''));
 
-    // Costo de cada artículo al momento de la compra (columna H). Queda
+    // Costo de cada artículo al momento de la compra (columna E, H o H + %
+    // según la tienda). Queda
     // guardado en el pedido para que la facturación no cambie si después se
     // edita la hoja.
     function costoDe(clave) {
@@ -1885,7 +1890,18 @@
         }).catch(() => {});
     }
 
-    Promise.all([cargarProductos(), configLista]).then(([filas]) => {
+    // Regla de costo (gestión de tiendas). Se espera con tope, como la config;
+    // si llega tarde y es otra, se recalculan los precios.
+    const costoPedido = (window.__costoPromise || T.pedirReglaCostoRemota()).then(r => T.normalizarReglaCosto(r));
+    const costoListo = Promise.race([costoPedido, new Promise(r => setTimeout(r, 3500))])
+        .then(r => { if (r) REGLA_COSTO = r; });
+    costoPedido.then(r => {
+        if (JSON.stringify(r) === JSON.stringify(REGLA_COSTO)) return;
+        REGLA_COSTO = r;
+        if (filasHoja) aplicarConfig(CFG);
+    }).catch(() => {});
+
+    Promise.all([cargarProductos(), configLista, costoListo]).then(([filas]) => {
         filasHoja = filas;
         if (!inicial.desdeCache && !ES_PREVIEW) $('filtroDisponibles').checked = !!CFG.catalogo.soloDisponiblesPorDefecto;
         prepararProductos();

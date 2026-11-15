@@ -59,6 +59,9 @@
             window.__configPromise = T.pedirConfigRemota();
             window.__configPromise.catch(function () {});
             window.__estadoPromise = preview ? Promise.resolve(null) : T.pedirEstadoRemoto();
+            // De qué columna sale el costo (E por defecto; H o H + % según la
+            // tienda). También en la vista previa, para que muestre los mismos precios.
+            window.__costoPromise = T.pedirReglaCostoRemota();
 
             if (typeof GOOGLE_SHEETS_CONFIG !== 'undefined' && typeof fetch === 'function') {
                 var c = GOOGLE_SHEETS_CONFIG;

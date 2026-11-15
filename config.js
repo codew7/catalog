@@ -26,7 +26,7 @@ const firebaseConfig = {
 };
 
 // Hoja de productos (la misma del catálogo mayorista). Columnas usadas:
-// A categoría · B imágenes · C código · D nombre · H costo · K stock ·
+// A categoría · B imágenes · C código · D nombre · E/H costo (según la tienda) · K stock ·
 // M fecha de alta · O descripción · P medidas.
 // IMPORTANTE: si la API key tiene restricción por sitio web (HTTP referrer),
 // hay que sumar el dominio de cada tienda en Google Cloud Console.
