@@ -3043,115 +3043,6 @@
 
     .video-modal-close:hover { background: rgba(10,14,20,.88); transform: scale(1.05); }
 
-    /* ---------- 17 · CONTACTO POR WHATSAPP (EN EL HEADER) ----------
-       Vive dentro de .header-actions, a la izquierda del selector de tema, en vez
-       de flotar sobre el contenido: contactar es una acción global como las
-       otras y le corresponde el mismo lugar. Reusa la caja de .hamburger-button
-       (mismo alto, mismo radio, mismo hover) y sólo cambia el color, así se
-       distingue como acción de contacto sin salirse del sistema. */
-    .wsp-menu { position: relative; flex: none; }
-
-    .wsp-button {
-        background: var(--verde-050);
-        border-color: var(--verde-100);
-        color: var(--verde-700);
-        font-size: 20px;
-    }
-
-    .wsp-button:hover,
-    .wsp-button[aria-expanded="true"] {
-        background: var(--verde-600);
-        border-color: var(--verde-600);
-        color: #fff;
-        box-shadow: 0 8px 18px -10px var(--verde-800);
-    }
-
-    /* Se despliega desde el header igual que .hamburger-dropdown. El corrimiento
-       lo calcula la variable a partir de las dos piezas que tiene a la derecha
-       (tema y hamburguesa) más los gaps de .header-actions: así el borde derecho
-       del panel queda alineado con el del menú hamburguesa en vez de cortado al
-       medio del header. */
-    #whatsappOptions {
-        --wsp-corrimiento: calc(2 * 46px + 2 * 10px);
-        position: absolute;
-        top: calc(100% + 12px);
-        right: calc(-1 * var(--wsp-corrimiento));
-        opacity: 0;
-        visibility: hidden;
-        transform: translateY(-8px);
-        transition: opacity var(--t), transform var(--t), visibility var(--t);
-        z-index: 1200;
-    }
-
-    #whatsappOptions.active {
-        opacity: 1;
-        visibility: visible;
-        transform: translateY(0);
-    }
-
-    /* Mismo lenguaje que .hamburger-dropdown: una sola tarjeta blanca con ítems,
-       en vez de píldoras sueltas con círculos verde WhatsApp. El max-width es el
-       que evita que en pantallas angostas el panel se salga por la izquierda,
-       porque queda anclado por su borde derecho. */
-    .wsp-panel {
-        background: var(--superficie);
-        border: 1px solid var(--borde);
-        border-radius: var(--radio-md);
-        box-shadow: var(--sombra-3);
-        padding: 6px;
-        width: 264px;
-        max-width: calc(100vw - 28px);
-    }
-
-    .wsp-panel-titulo {
-        display: block;
-        padding: 10px 12px 8px;
-        font-size: .62rem;
-        font-weight: 700;
-        letter-spacing: .1em;
-        text-transform: uppercase;
-        color: var(--tinta-400);
-    }
-
-    .wsp-option {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 12px;
-        border-radius: var(--radio-sm);
-        cursor: pointer;
-        transition: background var(--t);
-    }
-
-    .wsp-option:hover,
-    .wsp-option:focus-visible { background: var(--verde-050); }
-
-    .wsp-option > i {
-        width: 34px;
-        height: 34px;
-        flex: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--verde-050);
-        color: var(--verde-700);
-        border-radius: 50%;
-        font-size: 13px;
-        transition: background var(--t), color var(--t);
-    }
-
-    .wsp-option:hover > i { background: var(--verde-600); color: #fff; }
-
-    .wsp-option-texto {
-        display: flex;
-        flex-direction: column;
-        line-height: 1.3;
-        min-width: 0;
-    }
-
-    .wsp-option-texto strong { font-size: .85rem; font-weight: 700; color: var(--tinta-900); }
-    .wsp-option-texto small { font-size: .72rem; color: var(--tinta-400); }
-
     /* ---------- 18 · PIE ---------- */
     .site-footer {
         width: min(100% - 40px, var(--ancho));
@@ -3965,14 +3856,10 @@
         .brand img { width: 152px; }
         .brand-tag { font-size: .56rem; letter-spacing: .1em; white-space: nowrap; padding-left: 4px; }
 
-        /* Tres botones (WhatsApp, tema y hamburguesa) más el logo no entran a
-           46px en pantallas de 360px: se achican junto con el gap. El panel de
-           WhatsApp cuelga de ellos, así que su corrimiento sigue las medidas
-           nuevas. */
+        /* Los botones del header (tema y hamburguesa) se achican junto con el
+           gap para que el logo entre cómodo en pantallas de 360px. */
         .header-actions { gap: 8px; }
         .hamburger-button { width: 42px; height: 42px; font-size: 16px; }
-        .wsp-button { font-size: 18px; }
-        #whatsappOptions { --wsp-corrimiento: calc(2 * 42px + 2 * 8px); }
 
         /* Cuatro ítems entran cómodos incluso acá (unos 85px cada uno): la
            etiqueta se achica en lugar de desaparecer, que sería peor de usar. */
@@ -4576,24 +4463,8 @@
 
             <!-- Botones sueltos del header. En el estilo clásico la caja no
                  existe (display: contents); los estilos de estilos.css la usan
-                 para agrupar los tres botones en una esquina. -->
+                 para agrupar los botones en una esquina. -->
             <div class="header-botones">
-            <!-- WhatsApp · con un solo contacto abre el chat directo; con
-                 varios despliega el menú para elegir con quién hablar. -->
-            <div class="wsp-menu" id="wspMenu" hidden>
-                <button type="button" id="whatsappFloatBtn" class="hamburger-button wsp-button"
-                        aria-label="Contactar por WhatsApp" title="Contactar por WhatsApp"
-                        aria-haspopup="true" aria-expanded="false">
-                    <i class="fab fa-whatsapp" aria-hidden="true"></i>
-                </button>
-                <div id="whatsappOptions">
-                    <div class="wsp-panel">
-                        <span class="wsp-panel-titulo">¿Con quién querés hablar?</span>
-                        <div id="wspOpciones"></div>
-                    </div>
-                </div>
-            </div>
-
             <button type="button" id="themeToggleBtn" class="hamburger-button" aria-label="Cambiar a modo oscuro" title="Cambiar a modo oscuro">
                 <i class="fas fa-moon" aria-hidden="true"></i>
             </button>

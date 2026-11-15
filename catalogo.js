@@ -126,7 +126,6 @@
         pintarImagenes();
         pintarAnuncio();
         pintarFranja();
-        pintarWhatsAppHeader();
         pintarMenu();
         pintarPie();
         pintarBienvenida();
@@ -233,38 +232,6 @@
 
     function contactosValidos() {
         return T.aArray(CFG.contacto.contactos).filter(c => c && T.normalizarWhatsApp(c.telefono));
-    }
-
-    function pintarWhatsAppHeader() {
-        const lista = contactosValidos();
-        const menu = $('wspMenu');
-        const opciones = $('wspOpciones');
-        const unico = lista.length === 1 ? lista[0] : null;
-        const fallback = !lista.length && numeroPedidos();
-
-        menu.hidden = !lista.length && !fallback;
-        menu.dataset.directo = unico ? T.urlWhatsApp(unico.telefono) : (fallback ? T.urlWhatsApp(fallback) : '');
-
-        opciones.innerHTML = lista.map((c, i) => `
-            <div class="wsp-option" role="button" tabindex="0" data-indice="${i}">
-                <i class="${claseIcono(c.icono)}" aria-hidden="true"></i>
-                <span class="wsp-option-texto">
-                    <strong>${esc(c.nombre || T.formatearTelefono(c.telefono))}</strong>
-                    <small>${esc(c.detalle || T.formatearTelefono(c.telefono))}</small>
-                </span>
-            </div>`).join('');
-
-        opciones.querySelectorAll('.wsp-option').forEach(op => {
-            const abrir = () => {
-                const c = lista[Number(op.dataset.indice)];
-                window.open(T.urlWhatsApp(c.telefono), '_blank', 'noopener');
-                cerrarMenuWsp();
-            };
-            op.addEventListener('click', abrir);
-            op.addEventListener('keydown', e => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(); }
-            });
-        });
     }
 
     function hayFaq() {
@@ -1229,21 +1196,6 @@
 
     pintarTextoCuenta();
 
-    // --- Menú de WhatsApp del header ---
-    function cerrarMenuWsp() {
-        $('whatsappOptions').classList.remove('active');
-        $('whatsappFloatBtn').setAttribute('aria-expanded', 'false');
-    }
-
-    $('whatsappFloatBtn').addEventListener('click', e => {
-        e.stopPropagation();
-        const directo = $('wspMenu').dataset.directo;
-        if (directo) { window.open(directo, '_blank', 'noopener'); return; }
-        const abierto = $('whatsappOptions').classList.toggle('active');
-        $('whatsappFloatBtn').setAttribute('aria-expanded', abierto ? 'true' : 'false');
-        if (abierto) cerrarHamburguesa();
-    });
-
     // --- Menú hamburguesa ---
     function cerrarHamburguesa() {
         $('hamburgerDropdown').classList.remove('active');
@@ -1254,7 +1206,6 @@
         e.stopPropagation();
         const abierto = $('hamburgerDropdown').classList.toggle('active');
         $('hamburgerBtn').setAttribute('aria-expanded', abierto ? 'true' : 'false');
-        if (abierto) cerrarMenuWsp();
     });
 
     function activarConTeclado(el, fn) {
@@ -1278,7 +1229,6 @@
 
     // Cierres por click fuera
     document.addEventListener('click', e => {
-        if (!$('wspMenu').contains(e.target)) cerrarMenuWsp();
         if (!$('hamburgerDropdown').contains(e.target) && e.target !== $('hamburgerBtn')) cerrarHamburguesa();
         if (cartAbierto && !$('cartContainer').contains(e.target) && !e.target.closest('[data-accion="carrito"]') && !e.target.closest('.card')) {
             cerrarCarrito();
@@ -1948,7 +1898,6 @@
         if ($('infoModal').classList.contains('show')) { cerrarInfoModal(); return; }
         if ($('maintenanceOverlay').style.display === 'flex') { cerrarAviso(); return; }
         if ($('welcomeOverlay').style.display === 'flex') { cerrarBienvenida(); return; }
-        cerrarMenuWsp();
         cerrarHamburguesa();
         cerrarSheets();
         cerrarCarrito();

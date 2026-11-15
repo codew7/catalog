@@ -170,8 +170,6 @@
     transform: none;
 }
 
-[data-estilo="boutique"] #whatsappOptions { --wsp-corrimiento: calc(2 * 40px + 2 * 8px); }
-
 [data-estilo="boutique"] .hamburger-dropdown { border-color: var(--borde-fuerte); }
 [data-estilo="boutique"] .hamburger-dropdown-item:hover,
 [data-estilo="boutique"] .hamburger-dropdown-item:focus-visible { background: var(--superficie-2); color: var(--tinta-900); }
@@ -832,8 +830,6 @@
 [data-estilo="vitrina"] .hamburger-button:hover { background: var(--relleno-hover); transform: none; }
 [data-estilo="vitrina"] .hamburger-button:active { transform: scale(.94); }
 
-[data-estilo="vitrina"] #whatsappOptions { --wsp-corrimiento: calc(2 * 42px + 2 * 8px); }
-
 [data-estilo="vitrina"] .hamburger-dropdown {
     background: color-mix(in srgb, var(--superficie) 90%, transparent);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -1293,7 +1289,6 @@
     [data-estilo="vitrina"] .site-header-inner { min-height: 60px; padding: 8px 8px 8px 16px; border-radius: 20px; }
     [data-estilo="vitrina"] .brand-nombre { font-size: 1.3rem; }
     [data-estilo="vitrina"] .hamburger-button { width: 40px; height: 40px; }
-    [data-estilo="vitrina"] #whatsappOptions { --wsp-corrimiento: calc(2 * 40px + 2 * 8px); }
 
     [data-estilo="vitrina"] .carousel { border-radius: 22px; }
     [data-estilo="vitrina"] .info-band { gap: 8px; }
