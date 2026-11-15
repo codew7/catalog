@@ -51,6 +51,13 @@
         const el = $('estado');
         el.className = 'estado' + (clase ? ' ' + clase : '');
         $('estadoTexto').textContent = texto;
+        // Cápsula de cambios (celular): visible mientras haya algo por guardar
+        const barra = $('barraCambios');
+        if (barra) {
+            barra.classList.toggle('visible', clase === 'sucio' || clase === 'guardando' || clase === 'error');
+            barra.dataset.estado = clase || '';
+            $('barraCambiosTexto').textContent = clase === 'sucio' ? 'Sin guardar' : texto;
+        }
     }
 
     function mostrarBanda(html) {
@@ -85,6 +92,11 @@
         document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('activo', b.dataset.seccion === seccion));
         document.querySelectorAll('.seccion').forEach(s => s.classList.toggle('activa', s.dataset.seccion === seccion));
         try { sessionStorage.setItem('admin-seccion', seccion); } catch (e) {}
+        // Celular: la barra de secciones es una tira horizontal; la elegida queda centrada
+        const nav = $('nav'), activo = nav.querySelector('.nav-item.activo');
+        if (activo && nav.scrollWidth > nav.clientWidth + 4) {
+            nav.scrollTo({ left: activo.offsetLeft - (nav.clientWidth - activo.offsetWidth) / 2, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        }
         $('contenido').scrollTop = 0;
         window.scrollTo({ top: 0 });
         if ((seccion === 'precios' || seccion === 'catalogo') && !filasHoja) cargarHoja();
@@ -140,6 +152,8 @@
         const errores = validar();
         $('btnGuardar').disabled = !puedeGuardar || !sucio || guardando;
         $('btnDescartar').disabled = !sucio || guardando;
+        $('bcGuardar').disabled = $('btnGuardar').disabled;
+        $('bcDescartar').disabled = $('btnDescartar').disabled;
         document.querySelectorAll('.nav-item .nav-alerta').forEach(n => n.remove());
         new Set(errores.map(e => e.seccion)).forEach(s => {
             const item = document.querySelector(`.nav-item[data-seccion="${s}"]`);
@@ -877,13 +891,13 @@
         if (!lista.length) { $('tablaProductos').innerHTML = '<div class="lista-vacia">Sin resultados.</div>'; return; }
         $('tablaProductos').innerHTML = `
             <table class="tabla-productos">
-                <thead><tr><th>Producto</th><th class="num">Costo</th><th class="num">Escala</th><th class="num">Precio final</th></tr></thead>
+                <thead><tr><th>Producto</th><th class="num">Costo</th><th class="num col-escala">Escala</th><th class="num">Precio final</th></tr></thead>
                 <tbody>${lista.map(f => {
                     const d = T.detallePrecio(T.costoDeFila(f, reglaCosto), borrador.precios);
                     return `<tr>
                         <td class="nombre" title="${esc(f[3])}">${esc(f[3])}<span class="cat">${esc(f[0] || '')}${f[2] ? ' · ' + esc(f[2]) : ''}</span></td>
                         <td class="num">${d ? T.formatearMonto(d.costo) : '—'}</td>
-                        <td class="num">${d ? '+' + d.escala.pct + '%' : '—'}</td>
+                        <td class="num col-escala">${d ? '+' + d.escala.pct + '%' : '—'}</td>
                         <td class="num final">${d ? T.formatearMonto(d.precio) : (borrador.precios.sinCosto === 'consultar' ? 'Consultar' : 'Oculto')}</td>
                     </tr>`;
                 }).join('')}</tbody>
@@ -2224,6 +2238,8 @@
     }
 
     $('btnGuardar').addEventListener('click', guardar);
+    $('bcGuardar').addEventListener('click', () => $('btnGuardar').click());
+    $('bcDescartar').addEventListener('click', () => $('btnDescartar').click());
     document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); guardar(); }
     });
