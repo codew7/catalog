@@ -1500,6 +1500,8 @@
         cerrarCarrito();
 
         const p = CFG.pedido;
+        $('ckDniGrupo').hidden = p.pedirDni !== 'opcional' && p.pedirDni !== 'requerido';
+        $('ckDniOpcional').hidden = p.pedirDni === 'requerido';
         $('ckDireccionGrupo').hidden = p.pedirDireccion === 'no';
         $('ckDireccionOpcional').hidden = p.pedirDireccion === 'requerido';
         $('ckNotasGrupo').hidden = !p.pedirNotas;
@@ -1509,6 +1511,7 @@
         if (!$('ckTelefono').value) $('ckTelefono').value = cliente.telefono || '';
         if (!$('ckEmail').value) $('ckEmail').value = cliente.email || '';
         if (!$('ckDireccion').value) $('ckDireccion').value = cliente.direccion || '';
+        if (!$('ckDni').value) $('ckDni').value = cliente.dni || '';
         if (!entregaElegida && cliente.entrega) entregaElegida = cliente.entrega;
 
         const provPrevia = $('ckProvincia').value || cliente.provincia || '';
@@ -1525,7 +1528,7 @@
             mostrarError('ckProvinciaError', 'No pudimos cargar las provincias. Revisá tu conexión y volvé a abrir el formulario.');
         });
 
-        ['ckNombreError', 'ckTelefonoError', 'ckEmailError', 'ckProvinciaError', 'ckLocalidadError', 'ckEntregaError', 'ckDireccionError', 'ckEnvioError']
+        ['ckNombreError', 'ckTelefonoError', 'ckEmailError', 'ckProvinciaError', 'ckLocalidadError', 'ckEntregaError', 'ckDniError', 'ckDireccionError', 'ckEnvioError']
             .forEach(id => mostrarError(id, ''));
         pintarOpcionesEntrega();
         pintarResumenCheckout();
@@ -1571,6 +1574,7 @@
     });
     $('ckNombre').addEventListener('input', () => mostrarError('ckNombreError', ''));
     $('ckDireccion').addEventListener('input', () => mostrarError('ckDireccionError', ''));
+    $('ckDni').addEventListener('input', () => mostrarError('ckDniError', ''));
 
     // Costo de cada artículo al momento de la compra (columna E, H o H + %
     // según la tienda). Queda
@@ -1672,6 +1676,13 @@
             else datos.entrega = entregaElegida;
         }
 
+        if (p.pedirDni === 'opcional' || p.pedirDni === 'requerido') {
+            // Se aceptan puntos y espacios ("30.123.456"); se guardan sólo los dígitos
+            const dni = $('ckDni').value.replace(/[\s.]/g, '');
+            if (!dni) { if (p.pedirDni === 'requerido') marcar('ckDniError', 'Ingresá tu DNI.', $('ckDni')); }
+            else if (!/^\d{7,8}$/.test(dni)) marcar('ckDniError', 'Revisá el DNI: tiene que tener 7 u 8 números.', $('ckDni'));
+            else datos.dni = dni;
+        }
         if (p.pedirDireccion !== 'no') {
             const dir = $('ckDireccion').value.trim();
             if (p.pedirDireccion === 'requerido' && dir.length < 5) marcar('ckDireccionError', 'Indicá la dirección de entrega.', $('ckDireccion'));
@@ -1692,7 +1703,7 @@
         guardarLocal(CLAVE_CLIENTE, {
             nombre: datos.nombre, telefono: $('ckTelefono').value.trim(), email: datos.email,
             provincia: datos.provincia, localidad: datos.localidad,
-            direccion: datos.direccion || '', entrega: datos.entrega || ''
+            direccion: datos.direccion || '', entrega: datos.entrega || '', dni: datos.dni || ''
         });
 
         const pedido = armarPedido(datos);

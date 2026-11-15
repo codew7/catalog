@@ -24,7 +24,7 @@
 
             var id = segs[0] || '';
             var extra = segs[1] || '';
-            var reservados = ['admin', 'principal', 'index', 'api', 'img', 'assets', 'www', 'catalogo', 'tienda'];
+            var reservados = ['admin', 'principal', 'index', 'api', 'img', 'assets', 'www', 'catalogo', 'tienda', 'registro'];
             if (/^[a-z0-9][a-z0-9-]{1,30}$/.test(id) && reservados.indexOf(id) < 0) {
                 var resto = location.search ? '&' + location.search.slice(1) : '';
                 var destino = extra === 'admin'

@@ -78,9 +78,10 @@
         if (seccion === 'pedidos') seccion = 'checkout';   // nombre anterior de la sección
         if (!document.querySelector(`.seccion[data-seccion="${seccion}"]`)) seccion = 'ventas';
         const esVentas = seccion === 'ventas' || seccion === 'facturacion';
-        document.querySelector('.layout').classList.toggle('sin-preview', esVentas);
-        document.body.classList.toggle('modo-ventas', esVentas);
-        if (esVentas) $('preview').classList.remove('abierta');
+        const sinPreview = esVentas || seccion === 'estado';   // no dependen del borrador
+        document.querySelector('.layout').classList.toggle('sin-preview', sinPreview);
+        document.body.classList.toggle('modo-ventas', sinPreview);
+        if (sinPreview) $('preview').classList.remove('abierta');
         document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('activo', b.dataset.seccion === seccion));
         document.querySelectorAll('.seccion').forEach(s => s.classList.toggle('activa', s.dataset.seccion === seccion));
         try { sessionStorage.setItem('admin-seccion', seccion); } catch (e) {}
@@ -1251,7 +1252,7 @@
         if (!ventas.pedidos[key]) return;
         ventas.recientes.delete(key);
         const m = abrirModal({ titulo: '', icono: 'fa-receipt', cuerpo: '', pie: ' ', ancha: true, clase: 'modal-pedido' });
-        ventas.modal = { key, m, confirmando: false };
+        ventas.modal = { key, m, confirmando: false, recot: null };
         m.alCerrar(() => { if (ventas.modal && ventas.modal.m === m) ventas.modal = null; pintarPedidos(); });
         m.el.addEventListener('click', e => {
             const b = e.target.closest('[data-accion-pedido]');
@@ -1261,7 +1262,7 @@
     }
 
     function pintarDetalle() {
-        const { key, m, confirmando } = ventas.modal;
+        const { key, m, confirmando, recot } = ventas.modal;
         const p = ventas.pedidos[key];
         if (!p) return;
         const c = p.cliente || {};
@@ -1293,13 +1294,14 @@
                 <div class="datos-grid">
                     ${dato('fa-phone', 'Teléfono', telefonoVisible(c.telefono))}
                     ${dato('fa-envelope', 'Email', c.email)}
+                    ${dato('fa-id-card', 'DNI', c.dni)}
                     ${dato('fa-truck-fast', 'Entrega', c.entrega)}
                     ${dato('fa-house', 'Dirección', c.direccion)}
                     ${dato('fa-note-sticky', 'Notas', c.notas)}
                 </div>
             </div>
 
-            <div class="tabla-scroll">
+            ${recot ? htmlRecotizacion(p, recot) : `<div class="tabla-scroll">
                 <table class="tabla-productos tabla-pedido">
                     <thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Costo</th><th class="num">Subtotal</th></tr></thead>
                     <tbody>${items.map(it => `
@@ -1323,23 +1325,99 @@
                     <div><span>Costo</span><strong>${fm(p.costoTotal)}</strong></div>
                     <div class="ganancia"><span>Ganancia</span><strong>${fm(ganancia)}</strong><small>${margen}% del total</small></div>
                 </div>
-            </div>`;
+            </div>`}`;
 
+        if (recot) {
+            m.q('.modal-pie').innerHTML = recot.cambios
+                ? `<button type="button" class="btn" data-accion-pedido="recot-volver">Volver</button>
+                   <button type="button" class="btn btn-primario" data-accion-pedido="recot-aplicar"><i class="fas fa-check"></i>Aplicar precios vigentes</button>`
+                : `<button type="button" class="btn btn-primario" data-accion-pedido="recot-volver">Volver</button>`;
+            return;
+        }
         m.q('.modal-pie').innerHTML = confirmando
             ? `<div class="confirmar-borrado"><i class="fas fa-triangle-exclamation"></i><span><strong>¿Cancelar y eliminar el pedido #${esc(p.numero || '')}?</strong><small>Se borra para siempre y no cuenta en la facturación.</small></span></div>
                <button type="button" class="btn" data-accion-pedido="volver">No, volver</button>
                <button type="button" class="btn btn-peligro-lleno" data-accion-pedido="eliminar"><i class="fas fa-trash"></i>Sí, eliminar</button>`
             : `<button type="button" class="btn btn-peligro" data-accion-pedido="cancelar"><i class="fas fa-ban"></i>Cancelar pedido</button>
                <button type="button" class="btn" data-accion-pedido="copiar"><i class="fas fa-copy"></i>Copiar detalle</button>
+               ${entregado ? '' : '<button type="button" class="btn" data-accion-pedido="recotizar" title="Actualizar cada artículo al precio vigente"><i class="fas fa-arrows-rotate"></i>Recotizar</button>'}
                ${entregado
                 ? `<button type="button" class="btn" data-accion-pedido="reabrir"><i class="fas fa-rotate-left"></i>Volver a abierto</button>`
                 : `<button type="button" class="btn btn-primario" data-accion-pedido="entregar"><i class="fas fa-check"></i>Marcar entregado</button>`}`;
     }
 
+    // ---- Recotizar ----
+    // Recalcula cada artículo con lo vigente: la hoja de hoy, la variable de
+    // costos de la tienda y las escalas y el descuento GUARDADOS (no el
+    // borrador). El artículo se busca por código y, si no tiene, por nombre.
+    // Si ya no está en la lista o no tiene costo, conserva su precio.
+    function calcularRecotizacion(p) {
+        const porCodigo = new Map(), porNombre = new Map();
+        filasHoja.forEach(f => {
+            const cod = String(f[2] || '').trim().toLowerCase();
+            const nom = String(f[3] || '').trim().toLowerCase();
+            if (cod && !porCodigo.has(cod)) porCodigo.set(cod, f);
+            if (nom && !porNombre.has(nom)) porNombre.set(nom, f);
+        });
+        const n = (v) => Number(v) || 0;
+        let cambios = 0, sinDatos = 0;
+        const filas = itemsDe(p).map(it => {
+            const cod = String(it.codigo || '').trim().toLowerCase();
+            const f = cod ? porCodigo.get(cod) : porNombre.get(String(it.nombre || '').trim().toLowerCase());
+            const costo = f ? T.costoDeFila(f, reglaCosto) : NaN;
+            const precio = f ? T.calcularPrecio(costo, guardada.precios) : null;
+            if (precio === null) { sinDatos++; return { it, nuevo: it, estado: 'sinDatos' }; }
+            const nuevo = Object.assign({}, it, { precio, costo: Math.round(costo * 100) / 100 });
+            const cambio = n(nuevo.precio) !== n(it.precio) || n(nuevo.costo) !== n(it.costo);
+            if (cambio) cambios++;
+            return { it, nuevo, estado: cambio ? 'cambia' : 'igual' };
+        });
+        const items = filas.map(x => x.nuevo);
+        const unidades = items.reduce((s, it) => s + n(it.cantidad), 0);
+        const subtotal = items.reduce((s, it) => s + n(it.precio) * n(it.cantidad), 0);
+        // Mismo descuento que el catálogo (resumenCarrito en catalogo.js)
+        const d = guardada.pedido.descuento;
+        const aplica = !!d.activo && n(d.pct) > 0 && subtotal >= n(d.montoDesde) && unidades >= n(d.unidadesDesde);
+        const descuento = aplica ? Math.round(subtotal * n(d.pct) / 100) : 0;
+        const total = subtotal - descuento;
+        if (total !== n(p.total)) cambios = cambios || 1;
+        return { filas, items, subtotal, descuento, total, cambios, sinDatos };
+    }
+
+    function htmlRecotizacion(p, r) {
+        const flecha = (antes, despues) => Math.round(Number(antes) || 0) === Math.round(Number(despues) || 0)
+            ? fm(despues)
+            : `<span class="tenue" style="text-decoration:line-through">${fm(antes)}</span> <strong style="color:var(--ambar)">${fm(despues)}</strong>`;
+        const aviso = !r.cambios
+            ? '<div class="lista-vacia" style="margin-bottom:12px"><i class="fas fa-circle-check"></i> Los precios de este pedido ya están al día.</div>'
+            : `<p class="tarjeta-sub" style="margin:0 0 10px">Precios vigentes de cada artículo. Revisalos y tocá <strong>Aplicar precios vigentes</strong> para actualizar el pedido.</p>`;
+        return `${aviso}
+            <div class="tabla-scroll">
+                <table class="tabla-productos tabla-pedido">
+                    <thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Costo</th><th class="num">Subtotal</th></tr></thead>
+                    <tbody>${r.filas.map(({ it, nuevo, estado }) => `
+                        <tr>
+                            <td><span class="nombre" title="${esc(it.nombre)}">${esc(it.nombre)}</span><span class="cat">${it.codigo ? 'Cód. ' + esc(it.codigo) : ''}${estado === 'sinDatos' ? (it.codigo ? ' · ' : '') + 'Sin precio vigente: se mantiene' : ''}</span></td>
+                            <td class="num">${Number(it.cantidad) || 0}</td>
+                            <td class="num">${flecha(it.precio, nuevo.precio)}</td>
+                            <td class="num tenue">${flecha(it.costo, nuevo.costo)}</td>
+                            <td class="num">${flecha((Number(it.precio) || 0) * (Number(it.cantidad) || 0), (Number(nuevo.precio) || 0) * (Number(nuevo.cantidad) || 0))}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="detalle-totales">
+                <div class="totales-lineas">
+                    ${r.descuento ? `<div><span>Subtotal</span><span>${fm(r.subtotal)}</span></div><div class="desc"><span>Descuento</span><span>−${fm(r.descuento)}</span></div>` : ''}
+                    <div class="total"><span>Total</span><span>${flecha(p.total, r.total)}</span></div>
+                </div>
+            </div>`;
+    }
+
     function textoPedido(p) {
         const c = p.cliente || {};
         const l = [`Pedido #${p.numero} · ${fechaLarga(p.fecha || 0)}`, '',
-            `Cliente: ${c.nombre || ''}`, `Teléfono: ${telefonoVisible(c.telefono)}`, `Email: ${c.email || ''}`,
+            `Cliente: ${c.nombre || ''}`, `Teléfono: ${telefonoVisible(c.telefono)}`, `Email: ${c.email || ''}`, ...(c.dni ? [`DNI: ${c.dni}`] : []),
             `Localidad: ${[c.localidad, c.provincia].filter(Boolean).join(', ')}`];
         if (c.entrega) l.push(`Entrega: ${c.entrega}`);
         if (c.direccion) l.push(`Dirección: ${c.direccion}`);
@@ -1363,7 +1441,31 @@
             if (accion === 'cancelar') { ventas.modal.confirmando = true; pintarDetalle(); return; }
             if (accion === 'volver') { ventas.modal.confirmando = false; pintarDetalle(); return; }
             if (accion === 'copiar') { toast(await copiarTexto(textoPedido(p)) ? 'Detalle copiado.' : 'No se pudo copiar.', 'info'); return; }
+            if (accion === 'recot-volver') { ventas.modal.recot = null; pintarDetalle(); return; }
             ocupado(true);
+            if (accion === 'recotizar') {
+                if (!filasHoja) await cargarHoja();
+                if (!filasHoja) { ocupado(false); toast('No se pudo leer la lista de productos. Probá de nuevo en un momento.', 'error'); return; }
+                if (!ventas.modal || ventas.modal.key !== key) return;
+                ventas.modal.recot = calcularRecotizacion(p);
+                pintarDetalle();
+                return;
+            }
+            if (accion === 'recot-aplicar') {
+                const r = ventas.modal.recot;
+                if (!r) return;
+                // Sólo se guardan los campos que acepta la base (sin campos calculados)
+                const items = r.items.map(it => {
+                    const x = { nombre: it.nombre, cantidad: Number(it.cantidad) || 0, precio: Number(it.precio) || 0 };
+                    if (Number(it.costo) > 0) x.costo = Number(it.costo);
+                    if (it.codigo) x.codigo = it.codigo;
+                    return x;
+                });
+                await ref.update({ items, total: r.total });
+                if (ventas.modal && ventas.modal.key === key) { ventas.modal.recot = null; pintarDetalle(); }
+                toast(`Pedido #${p.numero} recotizado: total ${fm(r.total)}.`);
+                return;
+            }
             if (accion === 'entregar') {
                 await ref.update({ status: ENTREGADO, entregado: firebase.database.ServerValue.TIMESTAMP });
                 toast(`Pedido #${p.numero} marcado como entregado.`);
@@ -1821,12 +1923,11 @@
                 reglaCosto = T.normalizarReglaCosto(s.val());
                 pintarTablaProductos();
             }).catch(() => {});
-            refTienda.child('estado').once('value').then(s => {
-                const e = s.val();
-                if (e && e.activa === false) {
-                    mostrarBanda('<strong>Tu tienda está pausada:</strong> tus clientes ven un aviso de "no disponible" en lugar del catálogo. Podés seguir editando; cuando el administrador la reactive, los cambios ya van a estar publicados.');
-                }
-            }).catch(() => {});
+            escucharEstado();
+            const yo = firebase.auth().currentUser;
+            if (yo) firebase.database().ref('usuarios/' + yo.uid + '/tiendas').once('value')
+                .then(s => { _otrasTiendas = Object.keys(s.val() || {}).filter(id => id !== TIENDA).length; if (!estadoTienda.confirmandoBaja) pintarEstado(); })
+                .catch(() => {});
         } catch (e) {
             console.error(e);
             estado('Error de conexión', 'error');
@@ -1836,6 +1937,136 @@
             programarVentas();
         }
     }
+
+    // ======================================================================
+    // 9c · ESTADO · pausar la tienda y pedir su eliminación
+    // Se escribe al momento (no pasa por el borrador):
+    //   tiendas/<id>/estado { activa, mensaje, desde, pausadaPor: 'tienda' }
+    //     Si la pausó el administrador (pausadaPor ≠ 'tienda'), sólo él la
+    //     reactiva: lo hacen cumplir las reglas.
+    //   tiendas/<id>/baja { fecha, uid, email, borrarUsuario, motivo? }
+    //     La ve el administrador en la gestión de tiendas (Solicitudes).
+    // ======================================================================
+    const estadoTienda = { estado: null, baja: null, cargado: false, confirmandoBaja: false, bandaPropia: false };
+
+    function escucharEstado() {
+        refTienda.child('estado').on('value', s => {
+            estadoTienda.estado = s.val() || { activa: true };
+            estadoTienda.cargado = true;
+            pintarEstado();
+        }, () => {});
+        refTienda.child('baja').on('value', s => { estadoTienda.baja = s.val(); pintarEstado(); }, () => {});
+    }
+
+    // "hoy 14:20" / "el 15 nov 14:20"
+    function cuando(ts) { const f = formatoFecha(ts); return f.indexOf('hoy') === 0 ? f : 'el ' + f; }
+
+    function pintarEstado() {
+        if (!estadoTienda.cargado) return;
+        const e = estadoTienda.estado;
+        const pausada = e.activa === false;
+        const porAdmin = pausada && e.pausadaPor !== 'tienda';
+        const baja = estadoTienda.baja;
+
+        $('estadoPill').innerHTML = pausada ? '<span class="pill pausa">Pausada</span>' : '<span class="pill ok">Visible</span>';
+        $('navEstado').hidden = !pausada && !baja;
+
+        // Aviso arriba del panel mientras esté pausada
+        if (pausada) {
+            mostrarBanda(porAdmin
+                ? '<strong>El administrador pausó tu tienda:</strong> tus clientes ven un aviso de "no disponible" en lugar del catálogo. Podés seguir editando; cuando la reactive, los cambios ya van a estar publicados.'
+                : '<strong>Tu tienda está pausada:</strong> tus clientes ven un aviso de "no disponible". Reactivala desde <em>Tienda → Estado</em>.');
+            estadoTienda.bandaPropia = true;
+        } else if (estadoTienda.bandaPropia) {
+            $('bandaConfig').hidden = true;
+            estadoTienda.bandaPropia = false;
+        }
+
+        const mensaje = e.mensaje ? `<blockquote class="tarjeta-sub" style="margin:8px 0 12px;padding:8px 12px;border-left:3px solid var(--borde-fuerte)">${esc(e.mensaje)}</blockquote>` : '';
+        $('estadoVisibilidad').innerHTML = !pausada ? `
+                <p class="tarjeta-sub">Tu catálogo está visible y tus clientes pueden hacer pedidos. Si lo pausás, van a ver un aviso de "no disponible" en su lugar. Podés seguir editando la tienda mientras tanto.</p>
+                <div class="campo"><label for="estadoMensaje">Mensaje para tus clientes (opcional)</label>
+                    <textarea id="estadoMensaje" maxlength="400" rows="2" class="control" placeholder="Estamos renovando el catálogo. ¡Volvemos pronto!"></textarea></div>
+                <div class="lista-pie"><button type="button" class="btn" data-estado-accion="pausar"><i class="fas fa-pause"></i>Pausar tienda</button></div>`
+            : porAdmin ? `
+                <p class="tarjeta-sub">El administrador pausó tu tienda${e.desde ? ' ' + esc(cuando(e.desde)) : ''}. Sólo él puede reactivarla: comunicate con él si necesitás que vuelva a estar visible.</p>${mensaje}`
+            : `
+                <p class="tarjeta-sub">Pausaste la tienda${e.desde ? ' ' + esc(cuando(e.desde)) : ''}. ${e.mensaje ? 'Tus clientes ven este mensaje:' : 'Tus clientes ven un aviso de "no disponible".'}</p>${mensaje}
+                <div class="lista-pie"><button type="button" class="btn btn-primario" data-estado-accion="reactivar"><i class="fas fa-play"></i>Reactivar tienda</button></div>`;
+
+        if (baja) {
+            $('estadoBaja').innerHTML = `
+                <p class="tarjeta-sub"><i class="fas fa-hourglass-half"></i> Pediste la eliminación de la tienda ${esc(cuando(baja.fecha))}${baja.borrarUsuario ? ', <strong>junto con tu usuario y tus datos</strong>' : ''}. El administrador la va a revisar. Mientras tanto la tienda sigue funcionando igual.</p>
+                ${baja.motivo ? `<blockquote class="tarjeta-sub" style="margin:8px 0 12px;padding:8px 12px;border-left:3px solid var(--borde-fuerte)">${esc(baja.motivo)}</blockquote>` : ''}
+                <div class="lista-pie"><button type="button" class="btn" data-estado-accion="cancelar-baja"><i class="fas fa-rotate-left"></i>Cancelar la solicitud</button></div>`;
+            return;
+        }
+        if (estadoTienda.confirmandoBaja) return;   // no pisar lo que se está escribiendo
+        $('estadoBaja').innerHTML = `
+            <p class="tarjeta-sub">Si ya no vas a usar la tienda, podés pedirle al administrador que la elimine. Se borra todo: textos, imágenes, configuración y pedidos. No se puede deshacer.</p>
+            <div class="campos una">
+                <label class="interruptor"><input type="checkbox" id="bajaUsuario"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>También eliminar mi usuario y mis datos</strong><small>Tu cuenta de ingreso deja de existir${otrasTiendas() ? ' y perdés el acceso a tus otras tiendas' : ''}.</small></span></label>
+                <div class="campo"><label for="bajaMotivo">Motivo (opcional)</label><textarea id="bajaMotivo" maxlength="400" rows="2" class="control"></textarea></div>
+            </div>
+            <div class="lista-pie" id="bajaAcciones"><button type="button" class="btn btn-peligro" data-estado-accion="pedir-baja"><i class="fas fa-trash-can"></i>Solicitar eliminación</button></div>`;
+    }
+
+    // Cantidad de otras tiendas del usuario (para avisar al pedir la baja del usuario)
+    let _otrasTiendas = 0;
+    function otrasTiendas() { return _otrasTiendas; }
+
+    $('estadoVisibilidad').closest('.seccion').addEventListener('click', async (ev) => {
+        const b = ev.target.closest('[data-estado-accion]');
+        if (!b || !refTienda) return;
+        const accion = b.dataset.estadoAccion;
+        const yo = firebase.auth().currentUser;
+        const ok = (txt) => toast(txt);
+        const falla = (err) => {
+            console.error(err);
+            b.disabled = false;
+            toast(/permission/i.test(String(err && (err.code || err.message)))
+                ? 'No tenés permiso para hacer este cambio (¿usuario suspendido o tienda pausada por el administrador?).'
+                : 'No se pudo completar la acción. Revisá la conexión.', 'error');
+        };
+        if (accion === 'pedir-baja') {
+            // Paso de confirmación, sin perder lo que se escribió
+            estadoTienda.confirmandoBaja = true;
+            $('bajaAcciones').innerHTML = `
+                <div class="confirmar-borrado" style="flex-basis:100%"><i class="fas fa-triangle-exclamation"></i><span><strong>¿Pedir la eliminación de la tienda?</strong><small>El administrador la va a eliminar${$('bajaUsuario').checked ? ' junto con tu usuario y tus datos' : ''}. Podés cancelar la solicitud mientras no lo haga.</small></span></div>
+                <button type="button" class="btn" data-estado-accion="volver-baja">No, volver</button>
+                <button type="button" class="btn btn-peligro-lleno" data-estado-accion="confirmar-baja"><i class="fas fa-paper-plane"></i>Sí, solicitar</button>`;
+            return;
+        }
+        if (accion === 'volver-baja') { estadoTienda.confirmandoBaja = false; pintarEstado(); return; }
+        b.disabled = true;
+        try {
+            if (accion === 'pausar') {
+                const mensaje = $('estadoMensaje').value.trim().slice(0, 400);
+                const nuevo = { activa: false, desde: firebase.database.ServerValue.TIMESTAMP, pausadaPor: 'tienda' };
+                if (mensaje) nuevo.mensaje = mensaje;
+                await refTienda.child('estado').set(nuevo);
+                ok('Tienda pausada: tus clientes ven el aviso de "no disponible".');
+            } else if (accion === 'reactivar') {
+                await refTienda.child('estado').set({ activa: true });
+                ok('Tienda reactivada: ya está visible otra vez.');
+            } else if (accion === 'confirmar-baja') {
+                const pedido = {
+                    fecha: firebase.database.ServerValue.TIMESTAMP,
+                    uid: yo.uid,
+                    email: String(yo.email || '').slice(0, 200),
+                    borrarUsuario: $('bajaUsuario').checked
+                };
+                const motivo = $('bajaMotivo').value.trim().slice(0, 400);
+                if (motivo) pedido.motivo = motivo;
+                await refTienda.child('baja').set(pedido);
+                estadoTienda.confirmandoBaja = false;
+                ok('Solicitud enviada al administrador.');
+            } else if (accion === 'cancelar-baja') {
+                await refTienda.child('baja').remove();
+                ok('Solicitud de eliminación cancelada.');
+            }
+        } catch (err) { falla(err); }
+    });
 
     iniciar();
 })();

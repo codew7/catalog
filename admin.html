@@ -74,6 +74,8 @@
         <button type="button" class="nav-item" data-seccion="precios"><i class="fas fa-percent"></i>Precios</button>
         <button type="button" class="nav-item" data-seccion="checkout"><i class="fas fa-cart-shopping"></i>Checkout</button>
         <button type="button" class="nav-item" data-seccion="catalogo"><i class="fas fa-table-cells-large"></i>Catálogo</button>
+        <div class="nav-grupo">Tienda</div>
+        <button type="button" class="nav-item" data-seccion="estado"><i class="fas fa-power-off"></i>Estado<span class="nav-cuenta" id="navEstado" hidden>!</span></button>
     </nav>
 
     <!-- ===== Formularios ===== -->
@@ -409,6 +411,14 @@
                 <div class="campos una">
                     <label class="interruptor"><input type="checkbox" data-campo="pedido.pedirNotas"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Permitir notas</strong><small>Un campo libre para aclaraciones.</small></span></label>
                     <div class="campo">
+                        <span class="etiqueta">DNI</span>
+                        <div class="segmentos">
+                            <label><input type="radio" name="pedirDni" value="no" data-campo="pedido.pedirDni"><span>No pedir</span></label>
+                            <label><input type="radio" name="pedirDni" value="opcional" data-campo="pedido.pedirDni"><span>Opcional</span></label>
+                            <label><input type="radio" name="pedirDni" value="requerido" data-campo="pedido.pedirDni"><span>Obligatorio</span></label>
+                        </div>
+                    </div>
+                    <div class="campo">
                         <span class="etiqueta">Dirección de entrega</span>
                         <div class="segmentos">
                             <label><input type="radio" name="pedirDireccion" value="no" data-campo="pedido.pedirDireccion"><span>No pedir</span></label>
@@ -448,6 +458,21 @@
                 <div class="campo" style="margin-bottom:12px"><input type="search" class="control" id="buscarOculto" placeholder="Buscar artículo por nombre o código…" autocomplete="off"></div>
                 <div class="tabla-scroll" id="resultadosOcultos"></div>
                 <div id="listaOcultos" style="margin-top:14px"></div>
+            </div>
+        </section>
+        <!-- ESTADO (se escribe al momento: no pasa por el borrador ni por "Guardar") -->
+        <section class="seccion" data-seccion="estado">
+            <div class="seccion-cabecera">
+                <h1>Estado</h1>
+                <p>Pausá tu tienda cuando no quieras recibir pedidos, o pedile al administrador que la elimine. Estos cambios se aplican al instante, sin tocar <strong>Guardar</strong>.</p>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-eye ic"></i>Visibilidad</span><span id="estadoPill"></span></h2>
+                <div id="estadoVisibilidad"><div class="cargando-linea"><span class="spinner"></span>Cargando…</div></div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-trash-can ic"></i>Eliminar la tienda</span></h2>
+                <div id="estadoBaja"><div class="cargando-linea"><span class="spinner"></span>Cargando…</div></div>
             </div>
         </section>
     </main>

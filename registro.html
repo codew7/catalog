@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Creá tu tienda</title>
+    <meta name="description" content="Solicitá tu tienda online: completá tus datos y te avisamos cuando esté habilitada.">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23376550'/%3E%3Cpath d='M18 26l4-8h20l4 8v4a5 5 0 0 1-9 3 5 5 0 0 1-9 0 5 5 0 0 1-10-3zm4 10h20v10H22z' fill='%23fff'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+
+    <script>
+        (function () {
+            var t = null;
+            try { t = localStorage.getItem('admin-theme'); } catch (e) {}
+            var oscuro = t ? t === 'dark' : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            if (oscuro) document.documentElement.setAttribute('data-theme', 'dark');
+        })();
+    </script>
+
+    <!-- "?v=dev": ver index.html (lo reemplaza la publicación) -->
+    <script src="config.js?v=dev"></script>
+    <script src="tienda-core.js?v=dev"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js" defer></script>
+    <script src="admin-auth.js?v=dev" defer></script>
+    <script src="registro.js?v=dev" defer></script>
+
+    <link rel="stylesheet" href="panel.css?v=dev">
+    <style>
+        /* Página de registro: reutiliza el login del panel, en flujo normal
+           (no fija) y más ancha para que entren los dos grupos de datos. */
+        body { min-height: 100vh; margin: 0; }
+        .registro.login { position: static; min-height: 100vh; padding: 32px 16px; align-content: start; }
+        .registro .login-caja { width: min(560px, 100%); text-align: left; padding: 32px 30px 26px; }
+        .registro .cabeza { text-align: center; }
+        .registro .login-sub { margin-bottom: 18px; }
+        .pasos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 22px; padding: 0; list-style: none; counter-reset: paso; }
+        .pasos li { counter-increment: paso; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; font-size: .76rem; color: var(--tinta-600); line-height: 1.35; }
+        .pasos li::before { content: counter(paso); width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--verde-050); color: var(--verde-800); font-weight: 800; font-size: .78rem; }
+        .pasos strong { color: var(--tinta-900); font-size: .8rem; }
+        .grupo { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+        .grupo + .grupo { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--borde); }
+        .grupo legend { float: left; width: 100%; padding: 0; margin-bottom: 2px; font-size: .74rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--tinta-400); }
+        .grupo legend i { margin-right: 6px; color: var(--verde-600); }
+        .opcional { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--tinta-400); }
+        .enlace-previo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px; border-radius: var(--radio-sm); background: var(--superficie-2); border: 1px dashed var(--borde-fuerte); font-size: .82rem; color: var(--tinta-600); word-break: break-all; }
+        .enlace-previo strong { color: var(--tinta-900); }
+        .disponible { margin-left: auto; font-size: .74rem; font-weight: 700; white-space: nowrap; }
+        .disponible.ok { color: var(--verde-800); }
+        .disponible.mal { color: var(--rojo); }
+        .disponible.espera { color: var(--tinta-400); }
+        .acepto { display: flex; gap: 10px; align-items: flex-start; margin-top: 20px; padding: 12px 14px; border-radius: var(--radio-md); background: var(--superficie-2); font-size: .8rem; line-height: 1.5; color: var(--tinta-700); cursor: pointer; }
+        .acepto input { width: 16px; height: 16px; margin-top: 2px; flex: none; accent-color: var(--verde-600); }
+        .registro form { gap: 0; }
+        .registro .login-btn { margin-top: 18px; }
+        .registro .login-error, .registro .login-ok { margin-top: 14px; }
+        .pie-legal { margin: 16px 0 0; text-align: center; font-size: .74rem; color: var(--tinta-400); line-height: 1.5; }
+        .resumen { margin: 0 0 16px; padding: 14px 16px; border-radius: var(--radio-md); background: var(--superficie-2); border: 1px solid var(--borde); font-size: .86rem; line-height: 1.7; }
+        .resumen dt { font-size: .7rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--tinta-400); }
+        .resumen dd { margin: 0 0 6px; color: var(--tinta-900); word-break: break-word; }
+        .estado-ok { width: 56px; height: 56px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 50%; background: var(--verde-050); color: var(--verde-700); font-size: 24px; }
+        @media (max-width: 520px) {
+            .registro .login-caja { padding: 26px 18px 22px; }
+            .registro .campos { grid-template-columns: minmax(0, 1fr); }
+        }
+    </style>
+</head>
+<body>
+<main class="login registro">
+    <div class="login-caja">
+
+        <!-- ===== Formulario ===== -->
+        <section id="vistaForm" hidden>
+            <div class="cabeza">
+                <div class="login-marca"><i class="fas fa-store"></i></div>
+                <h1>Creá tu tienda</h1>
+                <p class="login-sub">Completá tus datos y enviá la solicitud. Revisamos cada pedido y te avisamos cuando tu tienda esté habilitada.</p>
+            </div>
+            <ol class="pasos" aria-label="Cómo funciona">
+                <li><strong>Enviás</strong>tu solicitud</li>
+                <li><strong>La revisamos</strong>y la aprobamos</li>
+                <li><strong>Entrás al panel</strong>y armás tu tienda</li>
+            </ol>
+
+            <form id="form" novalidate>
+                <fieldset class="grupo">
+                    <legend><i class="fas fa-store"></i>Tu tienda</legend>
+                    <div class="campo"><label for="rgTienda">Nombre de la tienda</label>
+                        <input type="text" id="rgTienda" maxlength="60" placeholder="Ej.: Bazar Lucía" autocomplete="organization" required>
+                        <small>Es el nombre que ven tus clientes. Lo podés cambiar después desde tu panel.</small></div>
+                    <div class="campo"><label for="rgId">Dirección de tu catálogo</label>
+                        <input type="text" id="rgId" maxlength="31" placeholder="bazar-lucia" spellcheck="false" autocomplete="off" required>
+                        <div class="enlace-previo"><i class="fas fa-link"></i><span id="rgEnlace"></span><span class="disponible espera" id="rgDisponible"></span></div>
+                        <small>Minúsculas, números y guiones. <strong>No se puede cambiar después.</strong></small></div>
+                    <div class="campo"><label for="rgUrl">Dominio propio <span class="opcional">(opcional)</span></label>
+                        <input type="url" id="rgUrl" maxlength="200" placeholder="https://bazarlucia.com.ar/" autocomplete="url">
+                        <small>Sólo si ya tenés un dominio (.com.ar, .com…). Si no, dejalo vacío: se puede sumar más adelante.</small></div>
+                </fieldset>
+
+                <fieldset class="grupo">
+                    <legend><i class="fas fa-user"></i>Tus datos</legend>
+                    <div class="campo"><label for="rgNombre">Nombre y apellido</label>
+                        <input type="text" id="rgNombre" maxlength="80" autocomplete="name" placeholder="Lucía Pérez" required></div>
+                    <div class="campo"><label for="rgEmail">Email</label>
+                        <input type="email" id="rgEmail" maxlength="200" autocomplete="email" placeholder="lucia@gmail.com" required>
+                        <small>Con este email vas a ingresar al panel de tu tienda.</small></div>
+                    <div class="campos">
+                        <div class="campo"><label for="rgClave">Contraseña</label>
+                            <div class="login-clave"><input type="password" id="rgClave" autocomplete="new-password" required>
+                                <button type="button" class="ver-clave" data-para="rgClave" aria-label="Mostrar contraseña"><i class="fas fa-eye"></i></button></div></div>
+                        <div class="campo"><label for="rgClave2">Repetir contraseña</label>
+                            <div class="login-clave"><input type="password" id="rgClave2" autocomplete="new-password" required>
+                                <button type="button" class="ver-clave" data-para="rgClave2" aria-label="Mostrar contraseña"><i class="fas fa-eye"></i></button></div></div>
+                    </div>
+                    <small class="ayuda" style="margin-top:-6px">Al menos 8 caracteres, combinando letras y números. Sólo vos la conocés: nadie te la va a pedir.</small>
+                    <div class="campo"><label for="rgComentario">Comentarios <span class="opcional">(opcional)</span></label>
+                        <textarea id="rgComentario" maxlength="500" rows="2" style="min-height:64px" placeholder="Qué vas a vender, cómo nos conociste, cualquier dato útil…"></textarea></div>
+                </fieldset>
+
+                <label class="acepto"><input type="checkbox" id="rgAcepto" required>
+                    <span>Entiendo que la tienda <strong>queda pendiente hasta que el administrador la apruebe</strong> y que, mientras tanto, no se puede ver ni editar. Acepto que mi nombre y mi email se usen sólo para gestionar mi cuenta y mi tienda.</span></label>
+
+                <p class="login-error" id="rgError" role="alert" hidden></p>
+                <button type="submit" class="btn btn-primario login-btn" id="rgEnviar"><i class="fas fa-paper-plane"></i>Enviar solicitud</button>
+            </form>
+            <p class="pie-legal">Enviar la solicitud no tiene costo ni te compromete a nada. Podés cancelarla mientras esté en revisión.</p>
+        </section>
+
+        <!-- ===== Solicitud en revisión ===== -->
+        <section id="vistaPendiente" hidden>
+            <div class="cabeza">
+                <div class="estado-ok"><i class="fas fa-hourglass-half"></i></div>
+                <h1 id="pendTitulo">Solicitud enviada</h1>
+                <p class="login-sub">La vamos a revisar a la brevedad. Cuando la aprobemos vas a poder entrar al panel con tu email y tu contraseña.</p>
+            </div>
+            <dl class="resumen" id="pendResumen"></dl>
+            <div class="login-aviso"><i class="fas fa-circle-info"></i><span>No hace falta que hagas nada más. Hasta que la aprobemos, la dirección de tu catálogo y el panel van a mostrar que la tienda no está disponible.</span></div>
+            <p class="login-error" id="pendError" role="alert" hidden></p>
+            <button type="button" class="btn login-btn" id="pendCancelar"><i class="fas fa-xmark"></i>Cancelar la solicitud</button>
+            <button type="button" class="btn btn-texto login-link" id="pendSalir" style="display:block;margin:8px auto 0">Salir</button>
+        </section>
+
+        <!-- ===== Cargando / sin conexión ===== -->
+        <div class="login-cargando" id="vistaCargando"><span class="spinner"></span>Cargando…</div>
+        <p class="login-error" id="vistaError" hidden></p>
+    </div>
+</main>
+</body>
+</html>
