@@ -19,17 +19,18 @@
         })();
     </script>
 
-    <script src="config.js"></script>
-    <script src="tienda-core.js"></script>
+    <!-- "?v=dev": ver index.html (lo reemplaza la publicación) -->
+    <script src="config.js?v=dev"></script>
+    <script src="tienda-core.js?v=dev"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js" defer></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js" defer></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js" defer></script>
     <!-- Login: admin-auth.js define TiendaAuth.asegurarAcceso(), que admin.js
          espera antes de leer o escribir la base. defer respeta este orden. -->
-    <script src="admin-auth.js" defer></script>
-    <script src="admin.js" defer></script>
+    <script src="admin-auth.js?v=dev" defer></script>
+    <script src="admin.js?v=dev" defer></script>
 
-    <link rel="stylesheet" href="panel.css">
+    <link rel="stylesheet" href="panel.css?v=dev">
 </head>
 <body>
 

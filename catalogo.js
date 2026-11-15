@@ -1317,7 +1317,7 @@
     function cargarGeo() {
         if (geo) return Promise.resolve(geo);
         if (!promesaGeo) {
-            promesaGeo = fetch(new URL('localidades-ar.json', T.BASE_SITIO).href)
+            promesaGeo = fetch(new URL('localidades-ar.json?v=dev', T.BASE_SITIO).href)
                 .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
                 .then(d => { geo = d; return d; })
                 .catch(e => { promesaGeo = null; throw e; });

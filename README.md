@@ -9,7 +9,9 @@ https://catalog.dev.ar/<tienda>/admin   → panel de la tienda
 
 ## Publicación
 
-Se publica tal cual con GitHub Pages: *Settings → Pages*, rama `main`, carpeta raíz. Para usar un dominio, cargarlo en *Custom domain*.
+Se publica solo con GitHub Actions (`.github/workflows/publicar.yml`) cada vez que se sube algo a `main`. Configuración, una sola vez: *Settings → Pages → Source: **GitHub Actions***. Para usar un dominio, cargarlo en *Custom domain* y tildar *Enforce HTTPS*.
+
+**Caché:** las páginas cargan sus archivos como `catalogo.js?v=dev`. Al publicar, `dev` se reemplaza por la versión del commit, así el navegador de un cliente nunca mezcla una página nueva con un archivo viejo guardado (GitHub Pages no deja configurar la caché). No hay que versionar nada a mano; sólo, al sumar un archivo `.js` o `.css` propio a una página, cargarlo con `?v=dev`.
 
 No hay que editar nada al crear una tienda nueva. `404.html` resuelve las direcciones `/<tienda>` y `/<tienda>/admin`.
 

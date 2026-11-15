@@ -16,8 +16,11 @@
     <!-- config.js (TIENDA_ID, Firebase, hoja) y el núcleo compartido van sin
          defer a propósito: los dos son locales y chicos, y el arranque de
          abajo los necesita antes del primer pintado. -->
-    <script src="config.js"></script>
-    <script src="tienda-core.js"></script>
+    <!-- "?v=dev" lo reemplaza la publicación (.github/workflows/publicar.yml) por
+         la versión del commit: así el navegador nunca mezcla una página nueva
+         con un archivo viejo guardado en caché. -->
+    <script src="config.js?v=dev"></script>
+    <script src="tienda-core.js?v=dev"></script>
 
     <!-- Arranque temprano · corre antes del primer pintado.
          1. Toma la configuración de la tienda guardada en este navegador (si
@@ -4820,6 +4823,6 @@
     <div id="carousel-pie-images" class="carousel-images"></div>
 </div>
 
-<script src="catalogo.js"></script>
+<script src="catalogo.js?v=dev"></script>
 </body>
 </html>
