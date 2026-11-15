@@ -119,13 +119,12 @@
                     <div class="linea total"><span>Total</span><strong>${fm(p.total)}</strong></div>
                     <div class="unidades">${unidades} ${unidades === 1 ? 'unidad' : 'unidades'} · ${items.length} ${items.length === 1 ? 'artículo' : 'artículos'}</div>
                 </footer>
-            </article>
 
-            <div class="acciones">
-                ${wsp ? `<a class="btn btn-wsp" href="${esc(T.urlWhatsApp(wsp, `Hola! Te escribo por mi pedido #${p.numero}.`))}" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i>Consultar por este pedido</a>` : ''}
-                <button type="button" class="btn" id="btnImprimir"><i class="fas fa-print"></i>Imprimir o guardar PDF</button>
-            </div>`;
-        $('btnImprimir').addEventListener('click', () => window.print());
+                ${wsp ? `<div class="consulta">
+                    <div class="consulta-texto"><strong>¿Tenés alguna duda?</strong><span>Escribile a ${esc(nombreTienda)} por WhatsApp.</span></div>
+                    <a class="btn btn-wsp" href="${esc(T.urlWhatsApp(wsp, `Hola! Te escribo por mi pedido #${p.numero}.`))}" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i>Consultar por este pedido</a>
+                </div>` : ''}
+            </article>`;
 
         const vence = new Date(p.vence).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
         $('pie').innerHTML = `

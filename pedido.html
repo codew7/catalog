@@ -98,8 +98,12 @@
     .linea.total strong { font-family: var(--display); font-size: clamp(1.5rem, 5vw, 1.9rem); font-weight: 800; letter-spacing: -.02em; color: var(--verde-800); }
     .unidades { font-size: .78rem; color: var(--tinta-400); text-align: right; margin-top: 2px; }
 
-    .acciones { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; }
-    .btn { flex: 1 1 220px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 50px; padding: 0 20px; border-radius: 14px; border: 1px solid var(--borde-fuerte); background: var(--superficie); color: var(--tinta-900); font: 700 .9rem var(--ui); text-decoration: none; cursor: pointer; transition: transform .12s, filter .15s, border-color .15s; }
+    /* Consulta por WhatsApp: cierra la tarjeta, debajo del total */
+    .consulta { display: flex; align-items: center; justify-content: space-between; gap: 14px 20px; flex-wrap: wrap; padding: 18px 28px 22px; border-top: 1px solid var(--borde); }
+    .consulta-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .consulta-texto strong { font-size: .92rem; font-weight: 700; }
+    .consulta-texto span { font-size: .82rem; color: var(--tinta-600); }
+    .btn { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 50px; padding: 0 20px; border-radius: 14px; border: 1px solid var(--borde-fuerte); background: var(--superficie); color: var(--tinta-900); font: 700 .9rem var(--ui); text-decoration: none; cursor: pointer; transition: transform .12s, filter .15s, border-color .15s; }
     .btn:hover { border-color: var(--verde-600); }
     .btn:active { transform: scale(.98); }
     .btn-wsp { background: #1fa855; border-color: #1fa855; color: #fff; }
@@ -122,6 +126,8 @@
         .pagina { padding-top: 18px; }
         .cabecera, .seccion, .totales { padding-left: 18px; padding-right: 18px; }
         .progreso { padding: 14px 18px; }
+        .consulta { padding: 16px 18px 18px; }
+        .consulta .btn { flex: 1 1 100%; }
         .btn-link span { display: none; }
         .btn-link { width: 38px; padding: 0; justify-content: center; }
     }
@@ -129,7 +135,7 @@
     @media print {
         :root { --bg:#fff; }
         body { background: #fff; }
-        .btn-link, .acciones { display: none !important; }
+        .btn-link, .consulta { display: none !important; }
         .tarjeta { box-shadow: none; border-color: #ddd; animation: none; }
         .pagina { padding: 0; }
     }

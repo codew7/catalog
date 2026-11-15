@@ -1190,10 +1190,20 @@
         q.on('child_changed', s => { ventas.pedidos[s.key] = completarPedido(s.val()); programarVentas(); }, fallo);
         q.on('child_removed', s => {
             delete ventas.pedidos[s.key];
+            // La copia de "Ingresar" se va con el pedido
+            const ce = T.claveEmail(((s.val() || {}).cliente || {}).email);
+            if (ce) refTienda.child('compras').child(ce).child(s.key).remove().catch(() => {});
             if (ventas.modal && ventas.modal.key === s.key) ventas.modal.m.cerrar();
             programarVentas();
         }, fallo);
         q.once('value').then(() => { ventas.cargados = true; programarVentas(); }).catch(fallo);
+
+        // Copias de "Ingresar" (tiendas/<id>/compras): se escuchan para poder
+        // compararlas con los pedidos y corregir sólo lo que cambió.
+        refTienda.child('compras').on('value', s => {
+            ventas.compras = s.val() || {};
+            programarCompras();
+        }, e => console.warn('No se pudieron leer las copias de "Ingresar":', e));
 
         // "hace 5 min" se mantiene al día
         setInterval(() => { if (seccionActual() === 'ventas') pintarPedidos(); }, 60000);
@@ -1204,8 +1214,51 @@
         return s ? s.dataset.seccion : '';
     }
 
+    // ---- Copias para "Ingresar" (tiendas/<id>/compras/<email>/<pedido>) ----
+    // El checkout crea la copia al confirmar. Acá se mantiene igual al pedido:
+    // edición, recotización, entrega, reapertura y pedidos viejos que todavía
+    // no la tenían. Una sola escritura con todas las diferencias.
+    let _comprasTimer = null;
+    function programarCompras() {
+        clearTimeout(_comprasTimer);
+        _comprasTimer = setTimeout(sincronizarCompras, 1500);
+    }
+
+    function sincronizarCompras() {
+        if (!ventas.cargados || ventas.error || !ventas.compras || !puedeGuardar) return;
+        const actual = ventas.compras;
+        const deseado = {};
+        Object.keys(ventas.pedidos).forEach(k => {
+            const p = ventas.pedidos[k];
+            const ce = T.claveEmail(p && p.cliente && p.cliente.email);
+            if (ce) deseado[ce + '/' + k] = T.resumenCompra(p);
+        });
+        const cambios = {};
+        Object.keys(deseado).forEach(ruta => {
+            const [ce, k] = ruta.split('/');
+            const hay = actual[ce] && actual[ce][k];
+            if (!hay || JSON.stringify(T.resumenCompra(hay)) !== JSON.stringify(deseado[ruta])) cambios[ruta] = deseado[ruta];
+        });
+        // Copias sin pedido: se borran. Si el pedido no está en la lista, se
+        // espera a que la copia tenga unos minutos (el pedido pudo llegar
+        // recién y todavía no aparecer acá); los vencidos caen por esta vía.
+        const margen = Date.now() - 5 * 60000;
+        Object.keys(actual).forEach(ce => {
+            const grupo = actual[ce];
+            if (!grupo || typeof grupo !== 'object') return;
+            Object.keys(grupo).forEach(k => {
+                if (deseado[ce + '/' + k]) return;
+                if (ventas.pedidos[k] || (Number(grupo[k] && grupo[k].fecha) || 0) < margen) cambios[ce + '/' + k] = null;
+            });
+        });
+        if (Object.keys(cambios).length) {
+            refTienda.child('compras').update(cambios).catch(e => console.warn('No se pudieron actualizar las copias de "Ingresar":', e));
+        }
+    }
+
     let _ventasPendiente = false;
     function programarVentas() {
+        programarCompras();
         if (_ventasPendiente) return;
         _ventasPendiente = true;
         requestAnimationFrame(() => {

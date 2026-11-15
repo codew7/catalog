@@ -21,7 +21,7 @@ No hay que editar nada al crear una tienda nueva. `404.html` resuelve las direcc
 
 | Archivo | Para qué sirve |
 |---|---|
-| `index.html` / `catalogo.js` | Catálogo (uno solo para todas las tiendas). |
+| `index.html` / `catalogo.js` | Catálogo (uno solo para todas las tiendas). Incluye *Ingresar*: el cliente escribe su email y ve sus pedidos de los últimos 90 días, leídos de `tiendas/<id>/compras/<email>` (copia mínima sin costos ni datos de contacto). |
 | `estilos.css` | Estilos alternativos del catálogo (**Boutique** y **Vitrina**), que se eligen en *Apariencia → Estilo del catálogo*. Actúan sólo cuando `<html>` tiene `data-estilo`; el estilo **Clásico** es el CSS de `index.html` sin cambios. |
 | `404.html` | Direcciones limpias por tienda. |
 | `pedido.html` / `pedido.js` | Detalle de un pedido para el comprador, con el logo y los colores de la tienda. Lee la copia pública `tiendas/<id>/publicos/<clave>` que genera el panel con *Enviar al cliente* (sin costos ni datos de contacto). Vence a los 30 días. |

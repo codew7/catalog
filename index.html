@@ -3382,7 +3382,7 @@
         height: var(--tabbar-hueco);
         padding-bottom: env(safe-area-inset-bottom, 0px);
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         align-items: stretch;
         background: var(--superficie);
         border-top: 1px solid var(--borde);
@@ -4417,6 +4417,74 @@
         .anuncio-barra { font-size: .76rem; padding: 8px 14px; }
         .checkout-resumen { flex-wrap: wrap; }
     }
+
+    /* --- Ingresar / Mis pedidos ---
+       Panel que lista los pedidos hechos con un email (tiendas/<id>/compras).
+       Usa los mismos tokens que el resto: cada estilo y el modo oscuro lo
+       re-pintan solos. */
+    .sheet-cuenta .sheet-body { padding: 16px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+    .cuenta-form { display: flex; flex-direction: column; gap: 10px; }
+    .cuenta-intro { margin: 0 0 4px; font-size: .88rem; line-height: 1.5; color: var(--tinta-600); }
+    .cuenta-label { font-size: .78rem; font-weight: 700; color: var(--tinta-700); }
+    .cuenta-form input {
+        width: 100%; height: 48px; padding: 0 14px;
+        background: var(--superficie-2); color: var(--tinta-900);
+        border: 1px solid var(--borde-fuerte); border-radius: var(--radio-sm);
+        font: 500 .95rem var(--ui);
+        transition: border-color var(--t), box-shadow var(--t), background var(--t);
+    }
+    .cuenta-form input:focus { outline: none; background: var(--superficie); border-color: var(--verde-600); box-shadow: 0 0 0 3px var(--anillo, rgba(55,101,80,.14)); }
+    .cuenta-form .form-error { margin: 0; }
+    .cuenta-btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+        height: 48px; margin-top: 4px; padding: 0 18px;
+        background: var(--verde-600); color: #fff; border: 0; border-radius: var(--radio-sm);
+        font: 700 .92rem var(--ui); cursor: pointer; transition: background var(--t);
+    }
+    .cuenta-btn:hover { background: var(--verde-700); }
+    .cuenta-nota { margin: 2px 0 0; text-align: center; font-size: .74rem; color: var(--tinta-400); }
+    .cuenta-nota i { margin-right: 5px; }
+
+    .cuenta-cabecera { display: flex; align-items: center; gap: 12px; padding: 0 2px 14px; margin-bottom: 12px; border-bottom: 1px solid var(--borde); }
+    .cuenta-avatar { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--verde-050); color: var(--verde-800); font: 800 1rem var(--display); }
+    .cuenta-quien { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    .cuenta-quien small { font-size: .72rem; color: var(--tinta-400); }
+    .cuenta-quien strong { font-size: .9rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cuenta-salir { flex: none; height: 34px; padding: 0 12px; background: none; border: 1px solid var(--borde-fuerte); border-radius: var(--radio-full); color: var(--tinta-700); font: 600 .78rem var(--ui); cursor: pointer; transition: border-color var(--t), color var(--t); }
+    .cuenta-salir:hover { border-color: var(--tinta-600); color: var(--tinta-900); }
+    .cuenta-cargando { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 26px 0; font-size: .86rem; color: var(--tinta-400); }
+    .cuenta-girador { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--borde-fuerte); border-top-color: var(--verde-600); animation: cuenta-girar .8s linear infinite; }
+    @keyframes cuenta-girar { to { transform: rotate(360deg); } }
+    .cuenta-vacio { padding: 18px 8px 8px; text-align: center; }
+    .cuenta-vacio i { font-size: 1.6rem; color: var(--tinta-400); }
+    .cuenta-vacio p { margin: 10px auto 0; max-width: 300px; font-size: .86rem; line-height: 1.5; color: var(--tinta-600); }
+    .cuenta-vacio .cuenta-salir { margin-top: 14px; }
+
+    .compras { display: flex; flex-direction: column; gap: 10px; }
+    .compra { background: var(--superficie-2); border: 1px solid var(--borde); border-radius: var(--radio-md); transition: border-color var(--t), background var(--t); }
+    .compra[open] { border-color: var(--borde-fuerte); background: var(--superficie); }
+    .compra summary { list-style: none; display: grid; gap: 6px; padding: 13px 14px; cursor: pointer; }
+    .compra summary::-webkit-details-marker { display: none; }
+    .compra summary:focus-visible { outline: 2px solid var(--verde-600); outline-offset: 2px; border-radius: var(--radio-md); }
+    .compra-fila { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+    .compra-numero { font: 800 .98rem var(--display); letter-spacing: -.01em; }
+    .compra-estado { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: var(--radio-full); font-size: .7rem; font-weight: 700; white-space: nowrap; }
+    .compra-estado::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .compra-estado.abierto { background: var(--ambar-050); color: var(--ambar-700); }
+    .compra-estado.entregado { background: var(--verde-050); color: var(--verde-800); }
+    .compra-meta { font-size: .78rem; color: var(--tinta-600); }
+    .compra-total { display: inline-flex; align-items: center; gap: 8px; font: 800 1.02rem var(--display); font-variant-numeric: tabular-nums; }
+    .compra-total i { font-size: .7rem; color: var(--tinta-400); transition: transform var(--t); }
+    .compra[open] .compra-total i { transform: rotate(180deg); }
+    .compra-detalle { padding: 2px 14px 14px; }
+    .compra-items { list-style: none; margin: 0; padding: 10px 0 0; border-top: 1px dashed var(--borde-fuerte); display: flex; flex-direction: column; gap: 8px; }
+    .compra-items li { display: flex; justify-content: space-between; gap: 12px; font-size: .82rem; line-height: 1.35; color: var(--tinta-700); }
+    .compra-items li span:last-child { flex: none; font-weight: 700; color: var(--tinta-900); font-variant-numeric: tabular-nums; }
+    .compra-items b { font-weight: 700; color: var(--tinta-900); }
+    .compra-desc { display: flex; justify-content: space-between; margin-top: 8px; font-size: .8rem; color: var(--verde-700); }
+    .compra-consultar { display: flex; align-items: center; justify-content: center; gap: 8px; height: 40px; margin-top: 12px; border-radius: var(--radio-sm); background: #1fa855; color: #fff; text-decoration: none; font: 700 .84rem var(--ui); transition: background var(--t); }
+    .compra-consultar:hover { background: #188a45; }
+    .cuenta-pie { margin: 14px 0 0; text-align: center; font-size: .74rem; line-height: 1.5; color: var(--tinta-400); }
     </style>
     <!-- Estilos alternativos del catálogo (Boutique, Vitrina): sólo actúan
          cuando <html> tiene data-estilo. Ver tienda-core.js, sección 3b. -->
@@ -4497,6 +4565,10 @@
                 <button type="button" class="header-nav-item" data-accion="contacto" aria-haspopup="dialog" aria-expanded="false">
                     <i class="fas fa-headset" aria-hidden="true"></i>
                     <span>Contacto</span>
+                </button>
+                <button type="button" class="header-nav-item" data-accion="cuenta" aria-haspopup="dialog" aria-expanded="false">
+                    <i class="fas fa-circle-user" aria-hidden="true"></i>
+                    <span class="js-cuenta-texto">Ingresar</span>
                 </button>
             </div>
 
@@ -4644,6 +4716,10 @@
             <span class="tabbar-icono"><i class="fas fa-headset" aria-hidden="true"></i></span>
             <span class="tabbar-label">Contacto</span>
         </button>
+        <button type="button" class="tabbar-item" data-accion="cuenta" aria-haspopup="dialog" aria-expanded="false">
+            <span class="tabbar-icono"><i class="fas fa-circle-user" aria-hidden="true"></i></span>
+            <span class="tabbar-label js-cuenta-texto">Ingresar</span>
+        </button>
     </nav>
 
     <!-- Fondo compartido por los paneles inferiores y el carrito -->
@@ -4667,6 +4743,17 @@
             </button>
         </div>
         <div class="sheet-body" id="sheetContactoCuerpo"></div>
+    </div>
+
+    <!-- Ingresar / Mis pedidos: los pedidos hechos con un email en esta tienda -->
+    <div class="sheet sheet-cuenta" id="sheetCuenta" role="dialog" aria-modal="true" aria-labelledby="sheetCuentaTitulo">
+        <div class="sheet-header">
+            <h3 id="sheetCuentaTitulo"><i class="fas fa-circle-user" aria-hidden="true"></i> <span class="js-cuenta-titulo">Ingresar</span></h3>
+            <button type="button" class="sheet-close" data-cerrar-sheet aria-label="Cerrar">
+                <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="sheet-body" id="sheetCuentaCuerpo"></div>
     </div>
 
     <!-- Carrito -->

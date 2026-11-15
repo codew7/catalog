@@ -36,6 +36,7 @@
     const CLAVE_CLIENTE = 'cliente:' + SUF;
     const CLAVE_BIENVENIDA = 'bienvenidaOculta:' + SUF;
     const CLAVE_AVISO = 'avisoVisto:' + SUF;
+    const CLAVE_CUENTA = 'cuenta:' + SUF;      // email con el que el cliente "ingresó" (sólo este dispositivo)
 
     // ---- Estado ----
     let filasHoja = null;       // filas crudas de la hoja (antes de aplicar la config)
@@ -894,7 +895,7 @@
     // 6 · PANELES, CARRITO Y NAVEGACIÓN (header en escritorio, barra en móvil)
     // ======================================================================
     const backdrop = $('sheetBackdrop');
-    const SHEETS = { sheetCategorias: 'categorias', sheetContacto: 'contacto' };
+    const SHEETS = { sheetCategorias: 'categorias', sheetContacto: 'contacto', sheetCuenta: 'cuenta' };
 
     function botonesDe(accion) { return document.querySelectorAll('[data-accion="' + accion + '"]'); }
 
@@ -961,7 +962,7 @@
 
     window.addEventListener('resize', () => {
         const tope = offsetHeaderFijo();
-        [$('cartContainer'), $('sheetCategorias'), $('sheetContacto')].forEach(el => {
+        [$('cartContainer'), $('sheetCategorias'), $('sheetContacto'), $('sheetCuenta')].forEach(el => {
             if (el.classList.contains('active')) el.style.top = tope ? (tope + 8) + 'px' : '';
         });
     });
@@ -1076,6 +1077,157 @@
         e.stopPropagation();
         abrirContacto();
     }));
+
+    // --- Ingresar / Mis pedidos ---
+    // El cliente escribe el email con el que compró y ve sus pedidos de esta
+    // tienda. Se lee tiendas/<id>/compras/<email>: una copia mínima que arma
+    // el checkout y mantiene el panel (ver TiendaCore.resumenCompra). Nunca
+    // se leen los pedidos completos. El email queda guardado sólo en este
+    // dispositivo para no pedirlo cada vez.
+    const cuenta = { email: (leerLocal(CLAVE_CUENTA) || {}).email || '', cargando: false, error: '', compras: null };
+
+    function pintarTextoCuenta() {
+        const texto = cuenta.email ? 'Mis pedidos' : 'Ingresar';
+        document.querySelectorAll('.js-cuenta-texto, .js-cuenta-titulo').forEach(n => { n.textContent = texto; });
+    }
+
+    function fechaCompra(ts) {
+        return new Date(ts).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function htmlCompra(c) {
+        const items = T.aArray(c.items);
+        const entregado = c.status === T.ESTADOS_PEDIDO.ENTREGADO;
+        const unidades = items.reduce((s, it) => s + (Number(it.cantidad) || 0), 0);
+        const subtotal = items.reduce((s, it) => s + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0);
+        const descuento = Math.round(subtotal - (Number(c.total) || 0));
+        const num = numeroPedidos();
+        const wsp = num ? T.urlWhatsApp(num, `Hola! Te escribo por mi pedido #${c.numero}.`) : '';
+        return `
+            <details class="compra">
+                <summary>
+                    <span class="compra-fila"><span class="compra-numero">Pedido #${esc(c.numero)}</span><span class="compra-estado ${entregado ? 'entregado' : 'abierto'}">${entregado ? 'Entregado' : 'En preparación'}</span></span>
+                    <span class="compra-fila"><span class="compra-meta">${esc(fechaCompra(c.fecha))} · ${unidades} ${unidades === 1 ? 'unidad' : 'unidades'}</span><span class="compra-total">${T.formatearMonto(Number(c.total) || 0)}<i class="fas fa-chevron-down" aria-hidden="true"></i></span></span>
+                </summary>
+                <div class="compra-detalle">
+                    <ul class="compra-items">${items.map(it => `<li><span><b>${Number(it.cantidad) || 0} ×</b> ${esc(it.nombre)}</span><span>${T.formatearMonto((Number(it.cantidad) || 0) * (Number(it.precio) || 0))}</span></li>`).join('')}</ul>
+                    ${descuento > 0 ? `<div class="compra-desc"><span>Descuento</span><span>−${T.formatearMonto(descuento)}</span></div>` : ''}
+                    ${wsp ? `<a class="compra-consultar" href="${esc(wsp)}" target="_blank" rel="noopener"><i class="fab fa-whatsapp" aria-hidden="true"></i>Consultar por este pedido</a>` : ''}
+                </div>
+            </details>`;
+    }
+
+    function pintarSheetCuenta() {
+        pintarTextoCuenta();
+        const cuerpo = $('sheetCuentaCuerpo');
+        if (!cuenta.email) {
+            const sugerido = (leerLocal(CLAVE_CLIENTE) || {}).email || '';
+            cuerpo.innerHTML = `
+                <form class="cuenta-form" id="cuentaForm" novalidate>
+                    <p class="cuenta-intro">Escribí el email que usaste al hacer tu pedido y te mostramos todos tus pedidos en esta tienda.</p>
+                    <label class="cuenta-label" for="cuentaEmail">Email</label>
+                    <input id="cuentaEmail" type="email" inputmode="email" autocomplete="email" placeholder="nombre@correo.com" maxlength="120" value="${esc(sugerido)}">
+                    <p class="form-error" id="cuentaError" role="alert" hidden></p>
+                    <button type="submit" class="cuenta-btn"><i class="fas fa-arrow-right-to-bracket" aria-hidden="true"></i>Ver mis pedidos</button>
+                    <p class="cuenta-nota"><i class="fas fa-circle-info" aria-hidden="true"></i>No hace falta contraseña.</p>
+                </form>`;
+            $('cuentaForm').addEventListener('submit', e => {
+                e.preventDefault();
+                const email = $('cuentaEmail').value.trim().toLowerCase();
+                if (!T.claveEmail(email)) {
+                    mostrarError('cuentaError', email ? 'Revisá el email: parece incompleto.' : 'Ingresá tu email.');
+                    $('cuentaEmail').focus();
+                    return;
+                }
+                ingresarCuenta(email);
+            });
+            $('cuentaEmail').addEventListener('input', () => mostrarError('cuentaError', ''));
+            return;
+        }
+
+        const cabecera = `
+            <div class="cuenta-cabecera">
+                <span class="cuenta-avatar" aria-hidden="true">${esc(cuenta.email.charAt(0).toUpperCase())}</span>
+                <span class="cuenta-quien"><small>Pedidos de</small><strong>${esc(cuenta.email)}</strong></span>
+                <button type="button" class="cuenta-salir js-cuenta-salir">Salir</button>
+            </div>`;
+        let contenido;
+        if (cuenta.cargando) {
+            contenido = '<div class="cuenta-cargando" role="status"><span class="cuenta-girador"></span>Buscando tus pedidos…</div>';
+        } else if (cuenta.error) {
+            contenido = `<div class="cuenta-vacio"><i class="fas fa-wifi" aria-hidden="true"></i><p>${esc(cuenta.error)}</p><button type="button" class="cuenta-salir js-cuenta-reintentar">Reintentar</button></div>`;
+        } else if (!cuenta.compras || !cuenta.compras.length) {
+            contenido = `<div class="cuenta-vacio"><i class="fas fa-receipt" aria-hidden="true"></i><p>No encontramos pedidos hechos con este email en los últimos ${T.DIAS_PEDIDOS} días. Revisá que esté bien escrito.</p><button type="button" class="cuenta-salir js-cuenta-salir">Probar con otro email</button></div>`;
+        } else {
+            contenido = '<div class="compras">' + cuenta.compras.map(htmlCompra).join('') + '</div>' +
+                `<p class="cuenta-pie">Se muestran los pedidos de los últimos ${T.DIAS_PEDIDOS} días.</p>`;
+        }
+        cuerpo.innerHTML = cabecera + contenido;
+        cuerpo.querySelectorAll('.js-cuenta-salir').forEach(b => b.addEventListener('click', salirCuenta));
+        const re = cuerpo.querySelector('.js-cuenta-reintentar');
+        if (re) re.addEventListener('click', cargarCompras);
+        const primera = cuerpo.querySelector('.compra');
+        if (primera && cuenta.compras.length === 1) primera.open = true;
+    }
+
+    function cargarCompras() {
+        const ce = T.claveEmail(cuenta.email);
+        const url = ce && T.urlNodo('compras/' + encodeURIComponent(ce));
+        if (!url) return;
+        cuenta.cargando = true;
+        cuenta.error = '';
+        pintarSheetCuenta();
+        fetch(url, { cache: 'no-store' })
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(d => {
+                const desde = T.limitePedidos();
+                cuenta.compras = Object.keys(d || {}).map(k => d[k])
+                    .filter(c => c && c.numero && Number(c.fecha) >= desde)
+                    .sort((a, b) => (Number(b.fecha) || 0) - (Number(a.fecha) || 0));
+            })
+            .catch(e => {
+                console.warn('No se pudieron leer los pedidos:', e);
+                cuenta.error = 'No pudimos buscar tus pedidos. Revisá tu conexión y volvé a intentar.';
+            })
+            .finally(() => {
+                cuenta.cargando = false;
+                if ($('sheetCuenta').classList.contains('active')) pintarSheetCuenta();
+            });
+    }
+
+    function recordarCuenta(email) {
+        cuenta.email = email;
+        cuenta.compras = null;
+        guardarLocal(CLAVE_CUENTA, { email });
+        pintarTextoCuenta();
+    }
+
+    function ingresarCuenta(email) {
+        recordarCuenta(email);
+        cargarCompras();
+    }
+
+    function salirCuenta() {
+        cuenta.email = '';
+        cuenta.compras = null;
+        cuenta.error = '';
+        try { localStorage.removeItem(CLAVE_CUENTA); } catch (e) {}
+        pintarSheetCuenta();
+        const input = $('cuentaEmail');
+        if (input) { input.value = ''; input.focus(); }
+    }
+
+    botonesDe('cuenta').forEach(b => b.addEventListener('click', e => {
+        e.stopPropagation();
+        const abierto = $('sheetCuenta').classList.contains('active');
+        pintarSheetCuenta();
+        abrirSheet('sheetCuenta');
+        if (abierto) return;
+        if (cuenta.email) cargarCompras();     // siempre al día al abrir
+        else if (window.matchMedia('(min-width: 901px)').matches) setTimeout(() => { const i = $('cuentaEmail'); if (i) i.focus(); }, 60);
+    }));
+
+    pintarTextoCuenta();
 
     // --- Menú de WhatsApp del header ---
     function cerrarMenuWsp() {
@@ -1625,7 +1777,14 @@
         if (ES_PREVIEW) return new Promise(res => setTimeout(res, 700));   // la vista previa no escribe
         // print=silent: Firebase responde vacío en vez de devolver todo lo escrito
         const url = `${T.baseDatosUrl()}/tiendas/${encodeURIComponent(T.tiendaId())}.json?print=silent`;
-        const cuerpo = { ['pedidos/' + clavePedido()]: pedido, ultimoPedido: { '.sv': 'timestamp' } };
+        const clave = clavePedido();
+        const cuerpo = { ['pedidos/' + clave]: pedido, ultimoPedido: { '.sv': 'timestamp' } };
+        // Copia mínima para "Ingresar" (TiendaCore.resumenCompra), en la misma
+        // escritura: o se guardan las dos cosas o ninguna.
+        const ce = T.claveEmail(pedido.cliente && pedido.cliente.email);
+        if (ce) {
+            cuerpo['compras/' + ce + '/' + clave] = Object.assign(T.resumenCompra(pedido), { fecha: { '.sv': 'timestamp' } });
+        }
         return fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) })
             .then(r => {
                 if (r.ok) return true;
@@ -1732,6 +1891,8 @@
             $('checkoutExito').hidden = false;
             $('ckNotas').value = '';
             vaciarCarrito();
+            // Queda "ingresado" con su email: en "Mis pedidos" ya ve este pedido
+            if (!ES_PREVIEW && T.claveEmail(datos.email)) recordarCuenta(datos.email);
         }).catch(err => {
             if (ventana) { try { ventana.close(); } catch (e) {} }
             console.error('No se pudo registrar el pedido:', err);
