@@ -163,6 +163,7 @@
 
         if (!ruta || ruta.indexOf('apariencia') === 0) {
             T.aplicarTemaEnDocumento(borrador.apariencia);
+            pintarEstilos();
             pintarGamas();
             $('muestraTipo').style.fontFamily = T.familiaTipografia(borrador.apariencia.tipografia);
         }
@@ -605,6 +606,54 @@
     // ======================================================================
     // 7 · APARIENCIA
     // ======================================================================
+
+    // Estilo del catálogo (TiendaCore.ESTILOS). Cada opción muestra una
+    // miniatura dibujada con CSS, pintada con el color principal de la gama
+    // actual, y el nombre en la tipografía propia del estilo.
+    let fuentesEstilosCargadas = false;
+    function cargarFuentesEstilos() {
+        if (fuentesEstilosCargadas) return;
+        fuentesEstilosCargadas = true;
+        Object.keys(T.ESTILOS).forEach(k => {
+            const href = T.urlFuenteEstilo(k);
+            if (!href) return;
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = href;
+            document.head.appendChild(link);
+        });
+    }
+
+    function maquetaEstilo() {
+        const tarjeta = '<span class="m-card"><span class="m-img"></span><span class="m-l1"></span><span class="m-l2"></span><span class="m-pie"><span class="m-precio"></span><span class="m-btn"></span></span></span>';
+        return '<span class="m-header"><span class="m-logo"></span><span class="m-nav"><i></i><i></i><i></i></span></span>' +
+               '<span class="m-grid">' + tarjeta + tarjeta + tarjeta + '</span>';
+    }
+
+    function pintarEstilos() {
+        cargarFuentesEstilos();
+        const a = borrador.apariencia;
+        const actual = T.estiloDe(a);
+        const color = T.tokensDeTema(a).claro['--verde-600'];
+        $('estilos').innerHTML = Object.keys(T.ESTILOS).map(k => {
+            const e = T.ESTILOS[k];
+            const fuente = e.display ? `font-family:'${e.display}',${T.familiaTipografia(a.tipografia)}` : `font-family:${T.familiaTipografia(a.tipografia)}`;
+            return `
+                <button type="button" class="estilo ${actual === k ? 'activa' : ''}" data-estilo="${k}" role="radio" aria-checked="${actual === k}" style="--c:${color}">
+                    <span class="estilo-muestra em-${k}" aria-hidden="true">${maquetaEstilo()}</span>
+                    <span class="estilo-texto">
+                        <span class="estilo-nombre" style="${fuente}">${esc(e.nombre)}<i class="fas fa-circle-check"></i></span>
+                        <small>${esc(e.descripcion)}</small>
+                    </span>
+                </button>`;
+        }).join('');
+        $('estilos').querySelectorAll('.estilo').forEach(b => b.addEventListener('click', () => {
+            if (a.estilo === b.dataset.estilo) return;
+            a.estilo = b.dataset.estilo;
+            cambio('apariencia.estilo');
+        }));
+    }
+
     function pintarGamas() {
         const a = borrador.apariencia;
         const opciones = Object.keys(T.TEMAS).map(k => ({ k, nombre: T.TEMAS[k].nombre }))

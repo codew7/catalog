@@ -539,6 +539,7 @@
 
         // 6 · Acción
         const accion = document.createElement('div');
+        accion.className = 'card-accion';
         accion.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:5px;min-height:50px;';
 
         if (p.precio === null) {
@@ -559,6 +560,7 @@
         }
 
         const qty = document.createElement('div');
+        qty.className = 'card-cantidad';
         qty.style.cssText = 'display:none;align-items:center;gap:5px;transition:all .3s ease;opacity:0;';
 
         const menos = document.createElement('button');

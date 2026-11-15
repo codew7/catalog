@@ -321,6 +321,7 @@
     /* Acciones a la derecha del header: navegación (solo escritorio) + selector
        de tema + menú hamburguesa */
     .header-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+    .header-botones { display: contents; }
 
     /* Navegación dentro del header · en móvil no existe: ahí la misma función la
        cumple la barra inferior (sección 21). Se muestra recién en ≥901px. */
@@ -4417,6 +4418,9 @@
         .checkout-resumen { flex-wrap: wrap; }
     }
     </style>
+    <!-- Estilos alternativos del catálogo (Boutique, Vitrina): sólo actúan
+         cuando <html> tiene data-estilo. Ver tienda-core.js, sección 3b. -->
+    <link rel="stylesheet" href="estilos.css?v=dev">
 </head>
 
 <body>
@@ -4498,6 +4502,10 @@
 
             <span class="header-divisor" aria-hidden="true"></span>
 
+            <!-- Botones sueltos del header. En el estilo clásico la caja no
+                 existe (display: contents); los estilos de estilos.css la usan
+                 para agrupar los tres botones en una esquina. -->
+            <div class="header-botones">
             <!-- WhatsApp · con un solo contacto abre el chat directo; con
                  varios despliega el menú para elegir con quién hablar. -->
             <div class="wsp-menu" id="wspMenu" hidden>
@@ -4536,6 +4544,7 @@
                         <span>Compartir catálogo</span>
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     </div>
