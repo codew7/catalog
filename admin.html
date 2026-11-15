@@ -424,7 +424,7 @@
         <section class="seccion" data-seccion="catalogo">
             <div class="seccion-cabecera">
                 <h1>Catálogo</h1>
-                <p>Qué se muestra de cada producto y qué categorías de la lista ofrecés.</p>
+                <p>Qué se muestra de cada producto y qué categorías y artículos de la lista ofrecés.</p>
             </div>
             <div class="tarjeta">
                 <h2 class="tarjeta-titulo"><span><i class="fas fa-eye ic"></i>Visualización</span></h2>
@@ -440,6 +440,13 @@
                 <p class="tarjeta-sub">Destildá las categorías que no querés ofrecer: sus productos no aparecen en tu catálogo.</p>
                 <div class="lista-pie" style="margin:0 0 10px"><button type="button" class="btn btn-chico" id="btnCatTodas">Marcar todas</button><button type="button" class="btn btn-chico" id="btnCatNinguna">Desmarcar todas</button></div>
                 <div class="categorias-grid" id="listaCategorias"><div class="cargando-linea"><span class="spinner"></span>Cargando categorías…</div></div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-eye-slash ic"></i>Artículos ocultos</span><span class="pastilla" id="cuentaOcultos"></span></h2>
+                <p class="tarjeta-sub">Ocultá artículos puntuales, sin importar su categoría: no aparecen en tu catálogo aunque su categoría esté visible. Buscalos por nombre o código.</p>
+                <div class="campo" style="margin-bottom:12px"><input type="search" class="control" id="buscarOculto" placeholder="Buscar artículo por nombre o código…" autocomplete="off"></div>
+                <div class="tabla-scroll" id="resultadosOcultos"></div>
+                <div id="listaOcultos" style="margin-top:14px"></div>
             </div>
         </section>
     </main>

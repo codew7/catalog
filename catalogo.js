@@ -335,6 +335,7 @@
 
     function prepararProductos() {
         const ocultas = new Set(T.aArray(CFG.catalogo.categoriasOcultas).map(c => String(c).trim().toLowerCase()));
+        const articulosOcultos = new Set(T.aArray(CFG.catalogo.articulosOcultos).map(c => String(c).trim().toLowerCase()));
         const consultar = CFG.precios.sinCosto === 'consultar';
         const lista = [];
 
@@ -349,6 +350,7 @@
             if (precio === null && !consultar) return;
 
             const codigo = String(f[COL.CODIGO] || '').trim();
+            if (articulosOcultos.has((codigo || nombre).toLowerCase())) return;
             const imagenes = String(f[COL.IMAGENES] || '').split(',').map(u => u.trim()).filter(Boolean);
             lista.push({
                 clave: codigo || nombre,

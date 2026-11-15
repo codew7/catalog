@@ -172,6 +172,7 @@
             pintarTablaProductos();
         }
         if (!ruta || ruta.indexOf('catalogo.categoriasOcultas') === 0) pintarCuentaCategorias();
+        if (!ruta || ruta.indexOf('catalogo.articulosOcultos') === 0) pintarArticulosOcultos();
     }
 
     function enviarConfigPreview() {
@@ -806,6 +807,7 @@
                 filasHoja = (d.values || []).filter(f => String(f[3] || '').trim());
                 pintarTablaProductos();
                 pintarCategorias();
+                pintarArticulosOcultos();
             })
             .catch(err => {
                 const msg = `<div class="lista-vacia">No se pudo leer la lista de productos (${esc(err.message)}). Si la API key de Google tiene restricción por sitio, sumá este dominio.</div>`;
@@ -890,6 +892,75 @@
         cambio('catalogo.categoriasOcultas');
         pintarCategorias();
     });
+
+    // ---- Artículos ocultos (catalogo.articulosOcultos) ----
+    // Se guarda sólo la clave de cada artículo: el código (columna C) o, si no
+    // tiene, el nombre. Es la misma clave que usa el catálogo para el carrito.
+    function claveFila(f) { return String(f[2] || '').trim() || String(f[3] || '').trim(); }
+    function claveNorm(k) { return String(k || '').trim().toLowerCase(); }
+    function ocultosSetArt() { return new Set(borrador.catalogo.articulosOcultos.map(claveNorm)); }
+
+    function alternarOculto(clave, ocultar) {
+        const k = claveNorm(clave);
+        const lista = borrador.catalogo.articulosOcultos.filter(x => claveNorm(x) !== k);
+        if (ocultar) lista.push(clave);
+        borrador.catalogo.articulosOcultos = lista;
+        cambio('catalogo.articulosOcultos');
+    }
+
+    function filaArticulo(f, oculto) {
+        const clave = claveFila(f);
+        return `<tr>
+            <td class="nombre" title="${esc(f[3])}">${esc(f[3])}<span class="cat">${esc(f[0] || '')}${f[2] ? ' · ' + esc(f[2]) : ''}</span></td>
+            <td class="num">${oculto
+                ? `<button type="button" class="btn btn-chico" data-oculto="0" data-clave="${esc(clave)}"><i class="fas fa-eye"></i>Mostrar</button>`
+                : `<button type="button" class="btn btn-chico" data-oculto="1" data-clave="${esc(clave)}"><i class="fas fa-eye-slash"></i>Ocultar</button>`}</td>
+        </tr>`;
+    }
+
+    function pintarArticulosOcultos() {
+        const ocultos = borrador.catalogo.articulosOcultos;
+        const set = ocultosSetArt();
+        $('cuentaOcultos').textContent = ocultos.length ? `${ocultos.length} oculto${ocultos.length === 1 ? '' : 's'}` : 'Ninguno oculto';
+
+        const q = normalizar($('buscarOculto').value);
+        if (!filasHoja) {
+            $('resultadosOcultos').innerHTML = q ? '<div class="cargando-linea"><span class="spinner"></span>Cargando productos…</div>' : '';
+        } else if (!q) {
+            $('resultadosOcultos').innerHTML = '';
+        } else {
+            const res = filasHoja.filter(f => normalizar(f[3]).includes(q) || normalizar(f[2]).includes(q)).slice(0, 20);
+            $('resultadosOcultos').innerHTML = res.length
+                ? `<table class="tabla-productos"><tbody>${res.map(f => filaArticulo(f, set.has(claveNorm(claveFila(f))))).join('')}</tbody></table>`
+                : '<div class="lista-vacia">Sin resultados.</div>';
+        }
+
+        if (!ocultos.length) { $('listaOcultos').innerHTML = '<div class="lista-vacia">No hay artículos ocultos. Buscá uno arriba para ocultarlo.</div>'; return; }
+        const porClave = new Map((filasHoja || []).map(f => [claveNorm(claveFila(f)), f]));
+        $('listaOcultos').innerHTML = `
+            <h3 class="modal-subtitulo" style="margin:0 0 6px">Ocultos ahora</h3>
+            <table class="tabla-productos"><tbody>${ocultos.map(k => {
+                const f = porClave.get(claveNorm(k));
+                if (f) return filaArticulo(f, true);
+                return `<tr>
+                    <td class="nombre">${esc(k)}<span class="cat">${filasHoja ? 'Ya no está en la lista' : ''}</span></td>
+                    <td class="num"><button type="button" class="btn btn-chico" data-oculto="0" data-clave="${esc(k)}"><i class="fas fa-xmark"></i>Quitar</button></td>
+                </tr>`;
+            }).join('')}</tbody></table>
+            <div class="lista-pie"><button type="button" class="btn btn-chico" id="btnOcultosNinguno">Mostrar todos</button></div>`;
+    }
+
+    let _ocultoTimer = null;
+    $('buscarOculto').addEventListener('input', () => { clearTimeout(_ocultoTimer); _ocultoTimer = setTimeout(pintarArticulosOcultos, 150); });
+    ['resultadosOcultos', 'listaOcultos'].forEach(id => $(id).addEventListener('click', (e) => {
+        if (e.target.closest('#btnOcultosNinguno')) {
+            borrador.catalogo.articulosOcultos = [];
+            cambio('catalogo.articulosOcultos');
+            return;
+        }
+        const b = e.target.closest('[data-clave]');
+        if (b) alternarOculto(b.getAttribute('data-clave'), b.getAttribute('data-oculto') === '1');
+    }));
 
     // ======================================================================
     // 9b · VENTAS · pedidos en vivo (tiendas/<id>/pedidos) y facturación
