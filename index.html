@@ -962,6 +962,11 @@
     .stock-info span[style*="color: #ff9800"]::before { content: '\f057'; }   /* circle-xmark */
     .stock-info span[style*="color: #ff9800"]::after  { content: 'Sin stock'; }
 
+    /* Tienda con "Pedidos sin stock": se puede pedir igual (catalogo.js marca data-a-pedido) */
+    .stock-info span[style*="color: #ff9800"][data-a-pedido] { color: var(--ambar-700) !important; }
+    .stock-info span[style*="color: #ff9800"][data-a-pedido]::before { content: '\f017'; }   /* clock */
+    .stock-info span[style*="color: #ff9800"][data-a-pedido]::after  { content: 'Sin stock · a pedido'; }
+
     /* Precio de lista (primer <p>): cifra protagonista.
        Es el valor que agregarAlCarrito() suma al total, por eso manda acá.
        El JS lo imprime como "<strong>Valor $</strong> 11,210": se oculta la

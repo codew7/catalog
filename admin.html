@@ -447,10 +447,17 @@
             <div class="tarjeta">
                 <h2 class="tarjeta-titulo"><span><i class="fas fa-eye ic"></i>Visualización</span></h2>
                 <div class="campos">
-                    <label class="interruptor"><input type="checkbox" data-campo="catalogo.mostrarStock"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Mostrar disponibilidad</strong><small>Disponible / Últimas unidades / Sin stock.</small></span></label>
                     <label class="interruptor"><input type="checkbox" data-campo="catalogo.mostrarCodigo"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Mostrar código del artículo</strong></span></label>
-                    <label class="interruptor"><input type="checkbox" data-campo="catalogo.soloDisponiblesPorDefecto"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>"Solo disponibles" activado al entrar</strong><small>Oculta de entrada los artículos sin stock.</small></span></label>
                     <div class="campo"><label for="f-ppp">Productos por página</label><select id="f-ppp" data-campo="catalogo.productosPorPagina" data-numero="1"><option value="20">20</option><option value="30">30</option><option value="40">40</option><option value="60">60</option></select></div>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2 class="tarjeta-titulo"><span><i class="fas fa-boxes-stacked ic"></i>Stock y disponibilidad</span></h2>
+                <p class="tarjeta-sub">Cómo usa tu catálogo el stock de la lista de productos. Las opciones se combinan entre sí.</p>
+                <div class="campos">
+                    <label class="interruptor"><input type="checkbox" data-campo="catalogo.mostrarStock"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Mostrar la disponibilidad a tus clientes</strong><small>Cada producto muestra una etiqueta: <em>Disponible</em>, <em>Últimas unidades</em> o <em>Sin stock</em>. Apagalo si preferís que tus clientes no vean el estado del stock. Ojo: apagarlo sólo oculta la etiqueta; si no activás la opción de abajo, los artículos sin stock igual no se pueden pedir.</small></span></label>
+                    <label class="interruptor"><input type="checkbox" data-campo="catalogo.pedidosSinStock"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Aceptar pedidos aunque no haya stock</strong><small>Tus clientes pueden pedir cualquier artículo y la cantidad que quieran, haya o no disponibilidad, y el pedido te llega igual. Sirve si trabajás por encargo o reponés mercadería seguido. Apagado (lo habitual), el stock pone el tope: no se puede pedir más de lo disponible y lo que no tiene stock no se puede sumar al carrito. Si mostrás la disponibilidad, los artículos sin stock dicen <em>Sin stock · a pedido</em>.</small></span></label>
+                    <label class="interruptor"><input type="checkbox" data-campo="catalogo.soloDisponiblesPorDefecto"><span class="interruptor-pista"></span><span class="interruptor-texto"><strong>Filtro "Solo disponibles" activado al entrar</strong><small>Al abrir el catálogo se ven de entrada sólo los artículos con stock; el cliente puede destildar el filtro para ver todo. Si aceptás pedidos sin stock, conviene apagarlo para que se vean todos tus productos desde el principio.</small></span></label>
                 </div>
             </div>
             <div class="tarjeta">

@@ -426,6 +426,14 @@
     // ---- Etiqueta de stock ----
     // Los hex son contrato con el CSS (sección 8): los selectores
     // [style*="color: #4CAF50"] reemplazan el texto por ícono + etiqueta.
+    // "Pedidos sin stock" (catalogo.pedidosSinStock): el comprador puede pedir
+    // cualquier artículo, haya o no disponibilidad, y el pedido se registra
+    // igual. Sin esa opción, el stock pone el tope (como siempre).
+    const MAX_UNIDADES = 10000;   // el mismo tope que aceptan las reglas por artículo
+    const pideSinStock = () => !!(CFG.catalogo && CFG.catalogo.pedidosSinStock);
+    const topeDe = (p) => pideSinStock() ? MAX_UNIDADES : p.stock;
+    const avisoTope = (p) => pideSinStock() ? `Máximo ${MAX_UNIDADES.toLocaleString('es-AR')} unidades por artículo` : `Sólo hay ${p.stock} unidades disponibles`;
+
     function etiquetaStock(stock, precio) {
         const umbral = (precio || 0) >= 30000 ? 5 : 15;
         if (isNaN(stock) || stock <= 0) return { label: '✗ Sin stock', color: '#ff9800' };
@@ -491,7 +499,9 @@
             const st = document.createElement('div');
             st.className = 'stock-info';
             const e = etiquetaStock(p.stock, p.precio);
-            st.innerHTML = `<span style="color: ${e.color};">${e.label}</span>`;
+            // Sin stock pero se puede pedir igual: "Sin stock · a pedido"
+            const aPedido = pideSinStock() && !(p.stock > 0);
+            st.innerHTML = `<span style="color: ${e.color};"${aPedido ? ' data-a-pedido="1"' : ''}>${aPedido ? '⏱ Sin stock · a pedido' : e.label}</span>`;
             card.appendChild(st);
         }
 
@@ -552,7 +562,9 @@
         btnAgregar.innerHTML = '<i class="fas fa-cart-plus"></i>';
         btnAgregar.style.transition = 'all 0.3s ease';
 
-        if (p.stock > 0) {
+        if (pideSinStock()) {
+            input.max = MAX_UNIDADES;
+        } else if (p.stock > 0) {
             input.max = p.stock;
             input.title = `Máximo ${p.stock} unidades disponibles`;
         } else {
@@ -584,7 +596,7 @@
         }
 
         btnAgregar.addEventListener('click', () => {
-            if (p.stock <= 0) return;
+            if (p.stock <= 0 && !pideSinStock()) return;
             input.value = '1';
             fijarCantidad(1);
             mostrarSelector();
@@ -592,8 +604,8 @@
 
         mas.addEventListener('click', () => {
             const n = parseInt(input.value, 10) || 1;
-            if (n >= p.stock) {
-                avisoBreve(`Sólo hay ${p.stock} unidades disponibles`);
+            if (n >= topeDe(p)) {
+                avisoBreve(avisoTope(p));
                 return;
             }
             input.value = n + 1;
@@ -613,9 +625,9 @@
         input.addEventListener('change', () => {
             let n = parseInt(input.value, 10);
             if (!n || n <= 0) n = 1;
-            if (n > p.stock) {
-                avisoBreve(`Sólo hay ${p.stock} unidades disponibles`);
-                n = p.stock;
+            if (n > topeDe(p)) {
+                avisoBreve(avisoTope(p));
+                n = topeDe(p);
             }
             input.value = n;
             fijarCantidad(n);
@@ -778,9 +790,9 @@
         for (let i = carrito.length - 1; i >= 0; i--) {
             const item = carrito[i];
             const p = porClave.get(item.clave);
-            if (!p || p.precio === null || p.stock <= 0) { carrito.splice(i, 1); cambio = true; continue; }
+            if (!p || p.precio === null || (p.stock <= 0 && !pideSinStock())) { carrito.splice(i, 1); cambio = true; continue; }
             if (item.precio !== p.precio) { item.precio = p.precio; cambio = true; }
-            if (item.cantidad > p.stock) { item.cantidad = p.stock; cambio = true; }
+            if (item.cantidad > topeDe(p)) { item.cantidad = topeDe(p); cambio = true; }
         }
         if (cambio) { guardarCarrito(); sincronizarTarjetasConCarrito(); }
     }
@@ -2063,7 +2075,7 @@
                 if (d.que === 'aviso') abrirAviso();
                 if (d.que === 'checkout') {
                     if (!carrito.length && productos.length) {
-                        const p = productos.find(x => x.precio !== null && x.stock > 0);
+                        const p = productos.find(x => x.precio !== null && (x.stock > 0 || pideSinStock()));
                         if (p) { carrito.push({ clave: p.clave, codigo: p.codigo, nombre: p.nombre, precio: p.precio, cantidad: 2 }); actualizarCarrito(); sincronizarTarjetasConCarrito(); }
                     }
                     abrirCheckout();
