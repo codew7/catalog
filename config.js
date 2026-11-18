@@ -35,3 +35,19 @@ const GOOGLE_SHEETS_CONFIG = {
     SPREADSHEET_ID: '1cD50d0-oSTogEe9tYo9ABUSP1ONCy3SAV92zsYYIG84',
     RANGO: 'Lista!A2:S'
 };
+
+// Base de pedidos de Home Point (la misma del catálogo del interior,
+// CatalogoWeb/config.js). La usa el panel del vendedor para "Solicitar a
+// Home Point": el pedido queda igual que uno hecho desde catalogoInterior.html.
+const FIREBASE_HOME_POINT = {
+    apiKey: "AIzaSyA4fVBCRgkhbTAaOyWg4cAkw7UXokF2uu8",
+    authDomain: "pedidos-87064.firebaseapp.com",
+    databaseURL: "https://pedidos-87064-default-rtdb.firebaseio.com",
+    projectId: "pedidos-87064",
+    storageBucket: "pedidos-87064.firebasestorage.app",
+    messagingSenderId: "294352872886",
+    appId: "1:294352872886:web:a5ffe0a214f23dca73cd17"
+};
+// Enlace del pedido (pedidos.html) y su versión: igual que PEDIDOS_VERSION
+// en CatalogoWeb/catalogoInterior.js.
+const PEDIDOS_HP = { version: '20260316', urlPedidos: 'https://www.home-point.com.ar/pedidos.html' };

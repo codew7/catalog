@@ -1350,7 +1350,7 @@
                     <span class="pedido-num"><span>#${esc(p.numero || '-----')}</span><time>${esc(hace(p.fecha || 0))}</time></span>
                     <span class="pedido-cliente"><strong>${esc(c.nombre || 'Sin nombre')}</strong><span>${lugar ? `<i class="fas fa-location-dot"></i>${esc(lugar)}` : ''}</span></span>
                     <span class="pedido-cifras"><strong>${fm(p.total)}</strong><span>${items.length} ${items.length === 1 ? 'artículo' : 'artículos'} · ${Number(p.unidades) || 0} u.</span></span>
-                    <span class="pill ${entregado ? 'ok' : 'pausa'}">${entregado ? 'Entregado' : 'Abierto'}</span>
+                    <span class="pill ${entregado ? 'ok' : 'pausa'}"${hpHabilitado && p.solicitado ? ' title="Mercadería solicitada a Home Point"' : ''}>${entregado ? 'Entregado' : 'Abierto'}${hpHabilitado && p.solicitado ? ' <i class="fas fa-truck-ramp-box" aria-label="solicitado a Home Point"></i>' : ''}</span>
                     <i class="fas fa-chevron-right pedido-flecha" aria-hidden="true"></i>
                 </button>`;
         });
@@ -1377,13 +1377,17 @@
         if (!ventas.pedidos[key]) return;
         ventas.recientes.delete(key);
         const m = abrirModal({ titulo: '', icono: 'fa-receipt', cuerpo: '', pie: ' ', ancha: true, clase: 'modal-pedido' });
-        ventas.modal = { key, m, vista: 'detalle', recot: null, edicion: null, envio: null };
+        ventas.modal = { key, m, vista: 'detalle', recot: null, edicion: null, envio: null, sol: null };
         m.alCerrar(() => { if (ventas.modal && ventas.modal.m === m) ventas.modal = null; pintarPedidos(); });
         m.el.addEventListener('click', e => {
             const b = e.target.closest('[data-accion-pedido]');
             if (b) accionPedido(b.dataset.accionPedido, b);
         });
         m.el.addEventListener('input', e => { if (ventas.modal && ventas.modal.vista === 'editar') entradaEdicion(e.target); });
+        // El formulario de registro en Home Point sobrevive a los repintados
+        const guardarRegistro = (e) => { const vm = ventas.modal; if (vm && vm.vista === 'solicitar' && vm.sol && !vm.sol.cargando && !vm.sol.cliente && e.target.closest('.registro-hp')) leerRegistroHP(vm); };
+        m.el.addEventListener('input', guardarRegistro);
+        m.el.addEventListener('change', guardarRegistro);
         pintarDetalle();
     }
 
@@ -1391,7 +1395,7 @@
         const vm = ventas.modal;
         if (!vm) return;
         vm.vista = vista;
-        if (vista === 'detalle') { vm.recot = null; vm.edicion = null; vm.envio = null; }
+        if (vista === 'detalle') { vm.recot = null; vm.edicion = null; vm.envio = null; vm.sol = null; }
         pintarDetalle();
     }
 
@@ -1408,8 +1412,10 @@
             pintarResultadosEdicion();
         } else if (vm.vista === 'enviar') {
             cuerpo.innerHTML = htmlEnvio(p, vm.envio);
+        } else if (vm.vista === 'solicitar') {
+            cuerpo.innerHTML = htmlSolicitud(p, vm.sol);
         } else {
-            cuerpo.innerHTML = htmlCliente(p) + (vm.vista === 'recot' ? htmlRecotizacion(p, vm.recot) : htmlItems(p));
+            cuerpo.innerHTML = htmlCliente(p) + (vm.vista === 'recot' ? htmlRecotizacion(p, vm.recot) : htmlHomePoint(p) + htmlItems(p));
         }
         vm.m.q('.modal-pie').innerHTML = pieDetalle(p, vm);
     }
@@ -1444,6 +1450,16 @@
                     ${dato('fa-note-sticky', 'Notas', c.notas)}
                 </div>
             </div>`;
+    }
+
+    // Franja "Solicitar a Home Point" del detalle
+    function htmlHomePoint(p) {
+        if (!hpHabilitado) return '';
+        if (p.solicitado) {
+            return `<div class="franja-hp hecho"><i class="fas fa-circle-check"></i><span><strong>Mercadería solicitada a Home Point</strong><small>${esc(fechaLarga(p.solicitado))}</small></span></div>`;
+        }
+        return `<div class="franja-hp"><i class="fas fa-truck-ramp-box"></i><span><strong>¿Necesitás esta mercadería?</strong><small>Pedísela a Home Point con un toque. Si ya tenés un pedido abierto, se suma a ése.</small></span>
+            <button type="button" class="btn btn-chico" data-accion-pedido="solicitar"><i class="fas fa-paper-plane"></i>Solicitar a Home Point</button></div>`;
     }
 
     function htmlItems(p) {
@@ -1492,6 +1508,11 @@
         if (vm.vista === 'enviar') {
             return `${vm.envio && vm.envio.url ? '<button type="button" class="btn btn-peligro" data-accion-pedido="dejar-compartir"><i class="fas fa-link-slash"></i>Dejar de compartir</button>' : ''}
                     <button type="button" class="btn btn-primario" data-accion-pedido="volver">Listo</button>`;
+        }
+        if (vm.vista === 'solicitar') {
+            const listo = vm.sol && !vm.sol.cargando && vm.sol.items.length;
+            return `<button type="button" class="btn" data-accion-pedido="volver">Volver</button>
+                    ${listo ? `<button type="button" class="btn btn-primario" data-accion-pedido="sol-confirmar"><i class="fas fa-paper-plane"></i>${vm.sol.abierto ? 'Sumar a mi pedido' : 'Solicitar'}</button>` : ''}`;
         }
         if (vm.vista === 'confirmar') {
             return `<div class="confirmar-borrado"><i class="fas fa-triangle-exclamation"></i><span><strong>¿Cancelar y eliminar el pedido #${esc(p.numero || '')}?</strong><small>Se borra para siempre y no cuenta en la facturación.${p.enlace ? ' El enlace del cliente deja de funcionar.' : ''}</small></span></div>
@@ -1780,6 +1801,239 @@
             </div>`;
     }
 
+    // ======================================================================
+    // SOLICITAR A HOME POINT
+    // La mercadería de un pedido de la tienda se le pide a Home Point como si
+    // el dueño la hubiera cargado en el catálogo del interior
+    // (CatalogoWeb/catalogoInterior.js): misma base (pedidos-87064), mismo
+    // formato de pedido, misma ficha de cliente (email de login del vendedor)
+    // y misma regla de stock. Si el dueño ya tiene un pedido ABIERTO y sin
+    // bloquear, se suma a ése (une por nombre, como el modo edición del
+    // interior), así todo queda en un solo pedido.
+    // La conexión con la otra base se abre sólo mientras se usa.
+    // ======================================================================
+    const PROVINCIAS_HP = ['CABA', 'Gran Buenos Aires', 'Buenos Aires', 'Catamarca', 'Chaco', 'Chubut', 'Córdoba', 'Corrientes', 'Entre Ríos', 'Formosa', 'Jujuy', 'La Pampa', 'La Rioja', 'Mendoza', 'Misiones', 'Neuquén', 'Río Negro', 'Salta', 'San Juan', 'San Luis', 'Santa Cruz', 'Santa Fe', 'Santiago del Estero', 'Tierra del Fuego', 'Tucumán'];
+    // Sólo para las tiendas que habilitó el admin global (tiendas/<id>/interior/habilitado).
+    // Se lee una vez al entrar; las reglas también lo exigen al guardar.
+    let hpHabilitado = false;
+    let _dbHP = null;
+    function dbHP() {
+        if (!_dbHP) {
+            const app = firebase.apps.find(a => a.name === 'hp') || firebase.initializeApp(FIREBASE_HOME_POINT, 'hp');
+            _dbHP = app.database();
+        }
+        _dbHP.goOnline();
+        return _dbHP;
+    }
+    function soltarHP() { if (_dbHP) _dbHP.goOffline(); }
+    const emailVendedor = () => String((firebase.auth().currentUser || {}).email || '').trim().toLowerCase();
+    const urlPedidoHP = (id) => `${PEDIDOS_HP.urlPedidos}?id=${encodeURIComponent(id)}&v=${PEDIDOS_HP.version}&o=int`;
+
+    // Igual que getStockDe del interior (columna K)
+    function stockDeFila(f) {
+        if (!f || f[10] === undefined || f[10] === null || String(f[10]).trim() === '') return 0;
+        const n = parseInt(String(f[10]).trim(), 10);
+        return isNaN(n) ? 0 : n;
+    }
+
+    // La hoja recién leída (el interior también revalida el stock justo antes de escribir)
+    async function hojaFresca() {
+        const c = GOOGLE_SHEETS_CONFIG;
+        const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${c.SPREADSHEET_ID}/values/${c.RANGO}?key=${c.API_KEY}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return ((await r.json()).values || []).filter(f => String(f[3] || '').trim());
+    }
+
+    // Artículos del pedido de la tienda → artículos del interior
+    // { nombre, cantidad, valorUSD (columna E, tal cual la hoja), codigo, categoria }
+    function armarItemsInterior(p, filas) {
+        const porCodigo = new Map(), porNombre = new Map();
+        filas.forEach(f => {
+            const cod = String(f[2] || '').trim(), nom = String(f[3] || '').trim();
+            if (cod && !porCodigo.has(cod)) porCodigo.set(cod, f);
+            if (nom && !porNombre.has(nom)) porNombre.set(nom, f);
+        });
+        const items = [], ajustes = [];
+        itemsDe(p).forEach(it => {
+            const cod = String(it.codigo || '').trim(), nom = String(it.nombre || '').trim();
+            const f = (cod && porCodigo.get(cod)) || porNombre.get(nom);
+            const pedida = Number(it.cantidad) || 0;
+            const stock = f ? stockDeFila(f) : 0;
+            if (!f || stock <= 0) { ajustes.push({ nombre: nom, pedida, queda: 0 }); return; }
+            const cantidad = Math.min(pedida, stock);
+            if (cantidad < pedida) ajustes.push({ nombre: nom, pedida, queda: cantidad });
+            const nombre = String(f[3] || '').trim();
+            const ya = items.find(x => x.nombre === nombre);
+            if (ya) { ya.cantidad = Math.min(stock, ya.cantidad + cantidad); return; }
+            items.push({ nombre, cantidad, valorUSD: f[4] == null ? '' : f[4], codigo: String(f[2] || '').trim(), categoria: f[0] || '' });
+        });
+        return { items, ajustes };
+    }
+
+    // Pedido abierto del dueño en Home Point (o null). Primero prueba el último
+    // que se le solicitó (3 lecturas mínimas); si ya no sirve, busca por email
+    // como validarPedidoAbierto del interior (hay índice en cliente/email).
+    async function buscarPedidoAbiertoHP(db, email) {
+        const sirve = (st, lk, em) => st === 'ABIERTO' && lk === false && String(em || '').trim().toLowerCase() === email;
+        const guardado = await refTienda.child('interior/pedido').once('value').then(s => s.val()).catch(() => null);
+        if (guardado) {
+            const r = db.ref('pedidos/' + guardado);
+            const [st, lk, em] = await Promise.all(['status', 'locked', 'cliente/email'].map(c => r.child(c).once('value').then(s => s.val())));
+            if (sirve(st, lk, em)) return guardado;
+        }
+        const s = await db.ref('pedidos').orderByChild('cliente/email').equalTo(email).once('value');
+        let id = null;
+        s.forEach(c => { const v = c.val() || {}; if (!id && sirve(v.status, v.locked, email)) id = v.id || c.key; });
+        return id;
+    }
+
+    // Ficha del cliente en Home Point, con los mismos campos que arma el interior
+    async function clienteHP(db, email) {
+        const s = await db.ref('clientes').orderByChild('email').equalTo(email).limitToFirst(1).once('value');
+        if (!s.exists()) return null;
+        const cli = Object.values(s.val())[0] || {};
+        return { email, nombre: cli.nombre || '', telefono: cli.telefono || '', localidad: cli.localidad || '', direccion: cli.direccion || '', provincia: cli.provincia || '', dni: cli.dni || '', tipoCliente: cli.tipoCliente || 'mayorista' };
+    }
+
+    async function prepararSolicitud(p) {
+        const email = emailVendedor();
+        if (!email) throw Object.assign(new Error('Tu usuario no tiene email.'), { visible: true });
+        const db = dbHP();
+        try {
+            const [filas, cliente, abierto] = await Promise.all([hojaFresca(), clienteHP(db, email), buscarPedidoAbiertoHP(db, email)]);
+            const yo = firebase.auth().currentUser || {};
+            const contacto = guardada.contacto || {};
+            const form = { nombre: yo.displayName || '', telefono: contacto.whatsappPedidos || '', direccion: contacto.direccion || '' };
+            return Object.assign({ email, cliente, abierto, form }, armarItemsInterior(p, filas));
+        } finally { soltarHP(); }
+    }
+
+    function htmlSolicitud(p, sol) {
+        if (!sol || sol.cargando) return `<div class="vacio"><i class="fas fa-spinner fa-spin"></i><p>Revisando stock y tu cuenta en Home Point…</p></div>`;
+        const ajustes = sol.ajustes.length ? `
+            <div class="aviso-solicitud alerta"><i class="fas fa-triangle-exclamation"></i><span><strong>Ajustes por stock</strong>
+                ${sol.ajustes.map(a => `<small>${esc(a.nombre)}: ${a.queda ? `pediste ${a.pedida}, quedan ${a.queda}` : 'sin stock, no se incluye'}</small>`).join('')}</span></div>` : '';
+        const destino = sol.abierto
+            ? `<div class="aviso-solicitud"><i class="fas fa-layer-group"></i><span><strong>Se suma a tu pedido abierto en Home Point</strong><small>Pedido ${esc(sol.abierto)}: los artículos repetidos suman cantidades.</small></span></div>`
+            : `<div class="aviso-solicitud"><i class="fas fa-file-circle-plus"></i><span><strong>Se crea un pedido nuevo en Home Point</strong><small>Te llega un email con el enlace para revisarlo y elegir el envío. Los próximos que solicites se suman a ése mientras siga abierto.</small></span></div>`;
+        const c = sol.form || {};
+        const registro = sol.cliente ? `
+            <p class="ayuda"><i class="fas fa-user-check"></i> A nombre de <strong>${esc(sol.cliente.nombre || sol.email)}</strong> (${esc(sol.email)}).</p>` : `
+            <div class="registro-hp">
+                <p class="ayuda" style="margin-top:0"><i class="fas fa-user-plus"></i> Tu email <strong>${esc(sol.email)}</strong> todavía no está registrado como cliente de Home Point. Completá tus datos una sola vez:</p>
+                <div class="form-grid">
+                    <div class="campo"><label for="hpNombre">Nombre y apellido</label><input id="hpNombre" class="control" maxlength="80" value="${esc(c.nombre || '')}"></div>
+                    <div class="campo"><label for="hpTelefono">Teléfono</label><input id="hpTelefono" class="control" type="tel" maxlength="30" value="${esc(c.telefono || '')}"></div>
+                    <div class="campo"><label for="hpDni">DNI</label><input id="hpDni" class="control" inputmode="numeric" maxlength="12" value="${esc(c.dni || '')}"></div>
+                    <div class="campo"><label for="hpProvincia">Provincia</label><select id="hpProvincia" class="control"><option value="">Elegí tu provincia</option>${PROVINCIAS_HP.map(x => `<option${x === c.provincia ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+                    <div class="campo"><label for="hpLocalidad">Localidad</label><input id="hpLocalidad" class="control" maxlength="80" value="${esc(c.localidad || '')}"></div>
+                    <div class="campo"><label for="hpDireccion">Dirección (opcional)</label><input id="hpDireccion" class="control" maxlength="140" value="${esc(c.direccion || '')}"></div>
+                </div>
+            </div>`;
+        const unidades = sol.items.reduce((s, it) => s + it.cantidad, 0);
+        return `
+            <p class="ayuda" style="margin-top:0">Se le pide a Home Point la mercadería de este pedido, igual que si la cargaras en el catálogo del interior.</p>
+            ${destino}${ajustes}
+            ${sol.items.length ? `<div class="tabla-scroll">
+                <table class="tabla-productos tabla-pedido">
+                    <thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Precio interior</th></tr></thead>
+                    <tbody>${sol.items.map(it => `
+                        <tr>
+                            <td><span class="nombre" title="${esc(it.nombre)}">${esc(it.nombre)}</span>${it.codigo ? `<span class="cat">Cód. ${esc(it.codigo)}</span>` : ''}</td>
+                            <td class="num">${it.cantidad}</td>
+                            <td class="num">${esc(it.valorUSD == null ? '—' : it.valorUSD)}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <p class="ayuda">${sol.items.length} ${sol.items.length === 1 ? 'artículo' : 'artículos'} · ${unidades} u.</p>` : '<div class="vacio"><i class="fas fa-box-open"></i><p>No hay stock de ningún artículo de este pedido.</p></div>'}
+            ${sol.items.length ? registro : ''}`;
+    }
+
+    // Lee el formulario de registro (si está) y lo valida como el interior:
+    // todo obligatorio salvo la dirección.
+    function leerRegistroHP(vm) {
+        const v = (id) => { const el = vm.m.q('#' + id); return el ? el.value.trim() : ''; };
+        const f = { nombre: v('hpNombre'), telefono: v('hpTelefono'), dni: v('hpDni').replace(/\D/g, ''), provincia: v('hpProvincia'), localidad: v('hpLocalidad'), direccion: v('hpDireccion') };
+        vm.sol.form = f;
+        const faltan = [];
+        if (!f.nombre) faltan.push('Nombre y apellido');
+        if (!f.telefono) faltan.push('Teléfono');
+        if (!f.dni) faltan.push('DNI');
+        if (!f.provincia) faltan.push('Provincia');
+        if (!f.localidad) faltan.push('Localidad');
+        return { f, faltan };
+    }
+
+    async function enviarSolicitud(key, sol) {
+        const email = sol.email;
+        const db = dbHP();
+        try {
+            // Un solo envío por pedido (por si lo pidió desde otra pestaña)
+            if ((await refTienda.child(`pedidos/${key}/solicitado`).once('value')).val()) return { repetido: true };
+
+            // 1 · Cliente: si no existe, se registra igual que en el interior
+            let cliente = await clienteHP(db, email);
+            if (!cliente) {
+                const f = sol.form;
+                cliente = { email, nombre: f.nombre, telefono: f.telefono, localidad: f.localidad, direccion: f.direccion, provincia: f.provincia, dni: String(f.dni || ''), tipoCliente: 'mayorista' };
+                await db.ref('clientes').push(Object.assign({}, cliente, { registro: 'web' }));
+            }
+
+            // 2 · Pedido abierto (se vuelve a mirar: pudo cerrarse mientras tanto)
+            const abierto = await buscarPedidoAbiertoHP(db, email);
+            let id, nuevo = false;
+            if (abierto) {
+                // Igual que el modo edición del interior: une por nombre y
+                // conserva valorU / valorC de lo que ya estaba.
+                const originales = T.aArray((await db.ref('pedidos/' + abierto + '/items').once('value')).val()).filter(Boolean);
+                const nombres = new Set(sol.items.map(it => it.nombre));
+                const finales = originales.filter(it => !nombres.has(it.nombre)).map(it => Object.assign({}, it));
+                sol.items.forEach(sel => {
+                    const orig = originales.find(it => it.nombre === sel.nombre);
+                    const item = { nombre: sel.nombre, cantidad: orig ? (Number(orig.cantidad) || 0) + sel.cantidad : sel.cantidad, valorUSD: sel.valorUSD, codigo: sel.codigo || '', categoria: sel.categoria || '' };
+                    if (orig && orig.valorU != null) item.valorU = orig.valorU;
+                    if (orig && orig.valorC != null) item.valorC = orig.valorC;
+                    finales.push(item);
+                });
+                await db.ref('pedidos/' + abierto).update({ items: finales, lastUpdated: Date.now() });
+                id = abierto;
+            } else {
+                // Mismo objeto que _enviarPedidoFinalConfirmado del interior
+                // ("Lo decido después": sin tipoEntrega)
+                const ref = db.ref('pedidos').push();
+                id = ref.key;
+                await ref.set({
+                    id,
+                    timestamp: Date.now(),
+                    locked: false,
+                    createdby: 'web',
+                    status: 'ABIERTO',
+                    cat: 'int',
+                    tipoPago: 'Transferencia',
+                    sucursal: '1',
+                    cliente: {
+                        nombre: cliente.nombre || '', telefono: cliente.telefono || '', localidad: cliente.localidad || '',
+                        direccion: cliente.direccion || '', provincia: cliente.provincia || '', dni: String(cliente.dni || ''),
+                        email: cliente.email || '', tipoCliente: cliente.tipoCliente || 'mayorista'
+                    },
+                    items: sol.items.map(it => ({ nombre: it.nombre, cantidad: it.cantidad, valorUSD: it.valorUSD, codigo: it.codigo || '', categoria: it.categoria || '' }))
+                });
+                nuevo = true;
+            }
+
+            // 3 · Marca en la tienda (una sola escritura)
+            await refTienda.update({ [`pedidos/${key}/solicitado`]: firebase.database.ServerValue.TIMESTAMP, 'interior/pedido': id });
+
+            // 4 · Email con el enlace, como el interior (sólo al crear el pedido)
+            if (nuevo && window.emailjs) {
+                emailjs.send('service_lu9cpxk', 'template_xqo1j5z', { email: cliente.email, name: cliente.nombre, linkPedido: urlPedidoHP(id) })
+                    .catch(e => console.warn('No se pudo enviar el email del pedido:', e));
+            }
+            return { id, nuevo };
+        } finally { soltarHP(); }
+    }
+
     async function accionPedido(accion, boton) {
         const vm = ventas.modal;
         if (!vm) return;
@@ -1832,6 +2086,36 @@
                 await refrescarCopiaPublica(key, { items: guardar, total });
                 if (sigueAbierto()) irVista('detalle');
                 toast(`Pedido #${p.numero} actualizado: total ${fm(total)}.`);
+                return;
+            }
+
+            // ---- Solicitar a Home Point ----
+            if ((accion === 'solicitar' || accion === 'sol-confirmar') && !hpHabilitado) return;
+            if (accion === 'solicitar') {
+                vm.sol = { cargando: true };
+                irVista('solicitar');
+                try {
+                    const r = await prepararSolicitud(p);
+                    if (sigueAbierto() && ventas.modal.vista === 'solicitar') { ventas.modal.sol = r; pintarDetalle(); }
+                } catch (e) {
+                    if (sigueAbierto()) irVista('detalle');
+                    if (e && e.visible) { toast(e.message, 'error'); return; }
+                    throw e;
+                }
+                return;
+            }
+            if (accion === 'sol-confirmar') {
+                const sol = vm.sol;
+                if (!sol || sol.cargando || !sol.items.length) return;
+                if (!sol.cliente) {
+                    const { faltan } = leerRegistroHP(vm);
+                    if (faltan.length) { toast('Completá: ' + faltan.join(', ') + '.', 'error'); return; }
+                }
+                ocupado(true);
+                const r = await enviarSolicitud(key, sol);
+                if (sigueAbierto()) irVista('detalle');
+                if (r.repetido) { toast('Este pedido ya se había solicitado a Home Point.', 'info'); return; }
+                toast(r.nuevo ? 'Listo: se creó tu pedido en Home Point.' : 'Listo: se sumó a tu pedido abierto en Home Point.');
                 return;
             }
 
@@ -2341,6 +2625,10 @@
             enviarAssetsPreview();
             enviarConfigPreview();
             iniciarVentas();
+            refTienda.child('interior/habilitado').once('value').then(s => {
+                hpHabilitado = s.val() === true;
+                if (hpHabilitado) programarVentas();
+            }).catch(() => {});
             refTienda.child('costo').once('value').then(s => {
                 reglaCosto = T.normalizarReglaCosto(s.val());
                 pintarTablaProductos();
